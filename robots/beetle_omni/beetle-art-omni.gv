@@ -1,0 +1,68 @@
+digraph G {
+node [shape=box];
+"root" [label="root"];
+"main_body" [label="main_body"];
+"rotor_arm1" [label="rotor_arm1"];
+"gimbal_link1" [label="gimbal_link1"];
+"rotor_parent1" [label="rotor_parent1"];
+"thrust1" [label="thrust1"];
+"rotor_arm2" [label="rotor_arm2"];
+"gimbal_link2" [label="gimbal_link2"];
+"rotor_parent2" [label="rotor_parent2"];
+"thrust2" [label="thrust2"];
+"rotor_arm3" [label="rotor_arm3"];
+"gimbal_link3" [label="gimbal_link3"];
+"rotor_parent3" [label="rotor_parent3"];
+"thrust3" [label="thrust3"];
+"rotor_arm4" [label="rotor_arm4"];
+"gimbal_link4" [label="gimbal_link4"];
+"rotor_parent4" [label="rotor_parent4"];
+"thrust4" [label="thrust4"];
+"ee_mount" [label="ee_mount"];
+"fork" [label="fork"];
+"ee_contact" [label="ee_contact"];
+"fc" [label="fc"];
+node [shape=ellipse, color=blue, fontcolor=blue];
+"root" -> "root_joint" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"root_joint" -> "main_body"
+"main_body" -> "base_arm_joint1" [label="xyz: 0.17938 0.17938 0.0171 \nrpy: 0 -0 0.785398"]
+"base_arm_joint1" -> "rotor_arm1"
+"rotor_arm1" -> "gimbal1" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"gimbal1" -> "gimbal_link1"
+"gimbal_link1" -> "rotor_parent_link_joint1" [label="xyz: 0.02185 0 0 \nrpy: 0 -0 0"]
+"rotor_parent_link_joint1" -> "rotor_parent1"
+"rotor_parent1" -> "rotor1" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"rotor1" -> "thrust1"
+"main_body" -> "base_arm_joint2" [label="xyz: -0.17938 0.17938 0.0171 \nrpy: 0 -0 2.35619"]
+"base_arm_joint2" -> "rotor_arm2"
+"rotor_arm2" -> "gimbal2" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"gimbal2" -> "gimbal_link2"
+"gimbal_link2" -> "rotor_parent_link_joint2" [label="xyz: 0.02185 0 0 \nrpy: 0 -0 0"]
+"rotor_parent_link_joint2" -> "rotor_parent2"
+"rotor_parent2" -> "rotor2" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"rotor2" -> "thrust2"
+"main_body" -> "base_arm_joint3" [label="xyz: -0.17938 -0.17938 0.0171 \nrpy: 0 -0 -2.35619"]
+"base_arm_joint3" -> "rotor_arm3"
+"rotor_arm3" -> "gimbal3" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"gimbal3" -> "gimbal_link3"
+"gimbal_link3" -> "rotor_parent_link_joint3" [label="xyz: 0.02185 0 0 \nrpy: 0 -0 0"]
+"rotor_parent_link_joint3" -> "rotor_parent3"
+"rotor_parent3" -> "rotor3" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"rotor3" -> "thrust3"
+"main_body" -> "base_arm_joint4" [label="xyz: 0.17938 -0.17938 0.0171 \nrpy: 0 0 -0.785398"]
+"base_arm_joint4" -> "rotor_arm4"
+"rotor_arm4" -> "gimbal4" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"gimbal4" -> "gimbal_link4"
+"gimbal_link4" -> "rotor_parent_link_joint4" [label="xyz: 0.02185 0 0 \nrpy: 0 -0 0"]
+"rotor_parent_link_joint4" -> "rotor_parent4"
+"rotor_parent4" -> "rotor4" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"rotor4" -> "thrust4"
+"main_body" -> "body_to_ee_mount" [label="xyz: 0 0 0.1725 \nrpy: 0 -0 0"]
+"body_to_ee_mount" -> "ee_mount"
+"ee_mount" -> "ee_mount_to_fork" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"ee_mount_to_fork" -> "fork"
+"fork" -> "fork_to_ee_contact" [label="xyz: 0 0 0.104 \nrpy: 0 -0 0"]
+"fork_to_ee_contact" -> "ee_contact"
+"main_body" -> "fc_joint" [label="xyz: -0.0175 -0.0015 0.06647 \nrpy: 0 -0 0"]
+"fc_joint" -> "fc"
+}

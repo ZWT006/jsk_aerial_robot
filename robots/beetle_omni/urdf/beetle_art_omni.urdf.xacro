@@ -194,7 +194,7 @@
   <!-- ============ End‑Effector (EE) =============== -->
 
   <!-- Select EE type:  fork | ball | sensor_ball | brush -->
-  <xacro:arg name="end_effector" default="fork"/>
+  <xacro:arg name="end_effector" default="ball"/>
   <xacro:property name="end_effector" value="$(arg end_effector)"/>
 
   <xacro:if value="${end_effector != 'fork' and end_effector != 'ball' and end_effector != 'sensor_ball'

@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+<launch>
+    ###########  Deploy Controller  ###########
+    # # # # Usage: The script will subscribe to sensor topics, run inference, and publish actions
+    # 1. Launch ROS core and necessary nodes to publish sensor data (IMU, etc.)
+    #    roslaunch gimbalrotor bringup.launch rm:=False sim:=True headless:=False
+    # 2. Run this script with the path to the ONNX model as a ROS parameter
+    #    roslaunch gimbalrotor deploy.launch 
+    # 3. set the desired Goal Pose by
+    #    python3 gimbalrotor/scripts/interactive_marker.py
+    # 4. foxglove visualization (optional), please reopen connection in the web if got `[WS] Handshake ended with HTTP error: 400`
+    #    Install: sudo apt install ros-$ROS_DISTRO-foxglove-bridge
+    #    Web View: https://app.foxglove.dev/dragon-lab/dashboard
+    #    roslaunch --screen foxglove_bridge foxglove_bridge.launch port:=8765
+    # 5. onnxruntime installation (if not installed)
+    #    
+    # # # #
+    # "2025-11-20_22-43-59policy.onnx";
+    # "2025-11-21_14-04-08policy-7.8k.onnx"; good performance with ideal odometry
+    # "2025-11-21_16-28-21policy-20k.onnx";
+    # "2025-11-21_20-08-31policy.onnx";
+    # "2025-11-21_22-32-31policy-20k.onnx";
+    # "2025-11-22_15-46-11policy.onnx";
+    # "2025-11-22_20-55-01policy.onnx";
+    # "2025-11-22_22-58-01policy-40k.onnx";
+    # "2025-11-22_22-58-01policy-20k.onnx";
+    # "2025-11-24_19-25-45policy.onnx";
+    # "2025-11-24_16-57-47policy.onnx";
+    # "2025-11-24_22-10-24policy.onnx";
+    # "2025-11-25_17-01-25policy.onnx";
+    # "2025-11-25_22-28-21policy-20k.onnx";
+    # "2025-11-26_10-24-03policy.onnx";
+    # "2025-11-26_12-18-47policy.onnx";
+    # "2025-11-26_18-15-33policy.onnx"; best performance so far, ideal odometry with cog2base transform
+    # "2025-11-26_20-54-19policy.onnx";
+    # "2025-11-26_22-56-28policy-40k.onnx";
+    # "2025-11-27_10-43-50policy-14k.onnx";
+    # "2025-11-27_14-06-23policy.onnx";
+    # "2025-11-28_22-35-34policy-10k.onnx"; 3~4k good performance with cog2base odometry
+    # "2025-11-29_23-01-37policy-10k.onnx";
+    # "policy-2025-12-01_16-07-55-10000.onnx"
+    #############################################
+  <node pkg="beetle_omni" type="beetle_deploy" name="beetle_deploy" output="screen" >
+    
+    <param name="onnx_path" value="$(find beetle_omni)/policy/policy-2025-12-06_16-55-18-20000.onnx"/>
+    <param name="control_freq" value="200"/>
+    <param name="decimation" value="2"/>
+    <param name="enable_thrust" value="true"/>
+    <param name="enable_gimbal" value="true"/>
+    <param name="gimbal_target_delay_steps" value="0"/>
+    <param name="gimbal_obs_delay_steps" value="0"/>
+    <param name="goal_pos_x" value="0.0"/>
+    <param name="goal_pos_y" value="0.0"/>
+    <param name="goal_pos_z" value="0.55"/>
+    <param name="goal_ang_R" value="0.0"/>
+    <param name="goal_ang_P" value="0.0"/>
+    <param name="goal_ang_Y" value="0.0"/>
+    <!-- <remap from="~odometry" to="/beetle_omni/ground_truth"/> -->
+    <remap from="~odometry" to="/beetle_omni/uav/cog/odom"/>
+    <!-- <remap from="~odometry" to="/beetle_omni/uav/baselink/odom"/> -->
+    <remap from="~imu" to="/beetle_omni/imu"/>
+    <remap from="~joint_states" to="/beetle_omni/joint_states"/>
+    <remap from="~goal_pose" to="/desired_3D_pose"/>
+  </node>
+</launch>

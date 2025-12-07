@@ -16,6 +16,15 @@ find_package(catkin REQUIRED COMPONENTS
 
 find_package(Eigen3 REQUIRED)
 
+# Use $ENV{HOME} rather than '~' to get a portable absolute path.
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
+  set(ONNXRUNTIME_DIR "$ENV{HOME}/ros/aerial_rl_ws/libraries/onnxruntime-linux-aarch64-1.22.0")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "amd64")
+  set(ONNXRUNTIME_DIR "$ENV{HOME}/libraries/onnxruntime")
+else()
+  message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}. Please set ONNXRUNTIME_DIR manually in CMakeLists.txt")
+endif()
+
 
 #list(APPEND CMAKE_PREFIX_PATH "~/acados/install/cmake")
 find_package(acados) # if we use REQUIED, then will cause OpenBLAS and FortranLib Find_Package error
@@ -53,6 +62,7 @@ include_directories(
  include
  ${catkin_INCLUDE_DIRS}
  ${EIGEN3_INCLUDE_DIRS}
+ ${ONNXRUNTIME_DIR}/include
 )
 
 ### control utils
@@ -60,6 +70,15 @@ add_library(control_utils
   src/control/utils/care.cpp
 )
 target_link_libraries(control_utils ${EIGEN3_LIBRARIES})
+
+
+### rlagent
+link_directories(${ONNXRUNTIME_DIR}/lib)
+# add_library(beetle_pose_controller src/rl/beetle_pose_controller.cpp)
+# target_link_libraries(beetle_pose_controller 
+#   ${catkin_LIBRARIES}
+#   ${ONNXRUNTIME_DIR}/lib/libonnxruntime.so
+#   )
 
 ### acados code generation
 add_custom_target(gen_acados_code ALL
@@ -112,8 +131,11 @@ add_library(flight_control_pluginlib
         src/nmpc/tilt_mt_servo_thrust_dist_nmpc_controller.cpp
         src/nmpc/tilt_mt_servo_thrust_imp_nmpc_controller.cpp
         src/nmpc/tilt_bi_2_ord_servo_mdl/nmpc_controller.cpp
+  src/rl/beetle_pose_controller.cpp
   )
-target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils mpc_solver_plugins wrench_est_plugins)
+target_link_libraries(flight_control_pluginlib ${catkin_LIBRARIES} control_utils mpc_solver_plugins wrench_est_plugins
+${ONNXRUNTIME_DIR}/lib/libonnxruntime.so)
+
 add_dependencies(flight_control_pluginlib  ${PROJECT_NAME}_gencfg mpc_solver_plugins wrench_est_plugins)
 
 ### flight navigation
