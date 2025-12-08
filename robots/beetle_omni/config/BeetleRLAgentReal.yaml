@@ -9,13 +9,13 @@ rlagent:
   decimation: 2
   ideal_obs: false
   ideal_delay: 2
-  rlagent_verbose: false
+  rlagent_verbose: true
   rlagent_debug: true
   rlagent_forward_info: false
   gimbal_target_delay_steps: 0
   gimbal_obs_delay_steps: 0
   enable_thrust: false
-  enable_gimbal: true
+  enable_gimbal: false
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 0.5

@@ -619,7 +619,8 @@ void BeetlePoseRLAgent::gimbalCallback(const sensor_msgs::JointState::ConstPtr& 
   for (size_t i=0, j=0; i < msg->name.size(); i++) {
     if (msg->name[i].find(gimbal_cmd_.name[j]) != std::string::npos && j < gimbal_size_) {
       gimbal_pos_[j] = msg->position[i] - gimbal_default_pos_[j];
-      gimbal_vel_[j] = msg->velocity[i];
+      if (gimbal_effort_ctrl_)
+        gimbal_vel_[j] = msg->velocity[i];
       j++;
     }
   }

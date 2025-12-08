@@ -339,7 +339,8 @@ private:
         // copy positions safely
         for (size_t i = 0; i < std::min<size_t>(msg->position.size(), gimbal_pos_.size()); ++i) {
             gimbal_pos_[i] = msg->position[i];
-            gimbal_vel_[i] = msg->velocity[i];
+            if (gimbal_effort_ctrl_)
+                gimbal_vel_[i] = msg->velocity[i];
         }
         gimbal_catch_ = true;
     }

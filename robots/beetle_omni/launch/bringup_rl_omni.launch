@@ -56,7 +56,8 @@
    <rosparam file="$(arg config_dir)/MotorInfoDShot.yaml" command="load" />
 
    ###########  Servo Config  ###########
-   <rosparam file="$(arg config_dir)/RLServo.yaml" command="load"/>
+   <rosparam file="$(arg config_dir)/RLServo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
+   <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('real_machine') and not arg('simulation'))"/>
 
    ###########  Battery Config  ###########
    <rosparam file="$(arg config_dir)/Battery.yaml" command="load" />

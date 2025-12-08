@@ -22,7 +22,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 # Use $ENV{HOME} rather than '~' to get a portable absolute path.
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
-  set(ONNXRUNTIME_DIR "$ENV{HOME}/ros/aerial_rl_ws/libraries/onnxruntime-linux-aarch64-1.22.0")
+  set(ONNXRUNTIME_DIR "$ENV{HOME}/ros/tau_ws/libraries/onnxruntime-linux-aarch64-1.22.0")
 elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "amd64")
   set(ONNXRUNTIME_DIR "$ENV{HOME}/libraries/onnxruntime")
 else()
