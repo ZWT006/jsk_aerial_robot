@@ -42,7 +42,7 @@
     #############################################
   <node pkg="beetle_omni" type="beetle_deploy" name="beetle_deploy" output="screen" >
     
-    <param name="onnx_path" value="$(find beetle_omni)/policy/policy-2025-12-06_16-55-18-20000.onnx"/>
+    <param name="onnx_path" value="$(find beetle_omni)/policy/policy-2025-12-06_20-47-26-20000.onnx"/>
     <param name="control_freq" value="200"/>
     <param name="decimation" value="2"/>
     <param name="enable_thrust" value="true"/>
@@ -55,8 +55,8 @@
     <param name="goal_ang_R" value="0.0"/>
     <param name="goal_ang_P" value="0.0"/>
     <param name="goal_ang_Y" value="0.0"/>
-    <!-- <remap from="~odometry" to="/beetle_omni/ground_truth"/> -->
-    <remap from="~odometry" to="/beetle_omni/uav/cog/odom"/>
+    <remap from="~odometry" to="/beetle_omni/ground_truth"/>
+    <!-- <remap from="~odometry" to="/beetle_omni/uav/cog/odom"/> -->
     <!-- <remap from="~odometry" to="/beetle_omni/uav/baselink/odom"/> -->
     <remap from="~imu" to="/beetle_omni/imu"/>
     <remap from="~joint_states" to="/beetle_omni/joint_states"/>

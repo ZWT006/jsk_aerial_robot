@@ -1,0 +1,36 @@
+aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
+# policy2025-12-05_13-21-20.onnx
+# policy-2025-12-06_16-55-18-20000.onnx ideal obs
+# policy-2025-12-06_20-47-26-10000.onnx
+# policy-2025-12-07_21-49-50-20000.onnx
+rlagent:
+  onnx_model_path: "policy/policy-2025-12-07_21-49-50-10000.onnx" # Path in ros package
+  control_freq: 400.0
+  decimation: 2
+  ideal_obs: false
+  ideal_delay: 2
+  rlagent_verbose: false
+  rlagent_debug: true
+  rlagent_forward_info: false
+  gimbal_target_delay_steps: 0
+  gimbal_obs_delay_steps: 0
+  enable_thrust: false
+  enable_gimbal: true
+  goal_pos_x: 0.0
+  goal_pos_y: 0.0
+  goal_pos_z: 0.5
+  goal_angle_R: 0.0
+  goal_angle_P: 0.0
+  goal_angle_Y: 0.0
+  thrust_default: 6.0
+  gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
+  gimbal_kp: 0.285
+  gimbal_kd: 0.019
+  gimbal_effort_ctrl: false
+  gimbal_size: 4
+  thrust_size: 4
+  scales:
+    lin_vel: 1.0
+    agn_vel: 0.2
+    gimbal_act: 0.25
+    thrust_act: 1.25

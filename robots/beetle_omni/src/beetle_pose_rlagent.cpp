@@ -98,6 +98,7 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<double>(rl_nh,"control_freq", control_hz_, 200.0);
   getParam<int>(rl_nh,"decimation", decimation_, 4);
   getParam<bool>(rl_nh,"ideal_obs", ideal_obs_, false);
+  getParam<int>(rl_nh,"ideal_delay", ideal_delay_, 4);  // 100Hz 
   getParam<bool>(rl_nh,"rlagent_verbose", verbose_, false);
   getParam<bool>(rl_nh,"rlagent_debug", debug_, false);
   getParam<bool>(rl_nh,"rlagent_forward_info", forward_info_, false);
@@ -172,6 +173,15 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   last_action_.resize(action_size_);
   gimbal_pos_.resize(gimbal_size_, 0.0);
   gimbal_vel_.resize(gimbal_size_, 0.0);
+
+  ang_vel_list_.clear();
+  lin_vel_list_.clear();
+  if (ideal_delay_ > 0) {
+    tf::Vector3 zero_vec(0.0, 0.0, 0.0);
+    // pre-fill with current target_gimbal_ so initial outputs are stable
+    for (int i = 0; i < ideal_delay_; ++i) ang_vel_list_.push_back(zero_vec);
+    for (int i = 0; i < ideal_delay_; ++i) lin_vel_list_.push_back(zero_vec);
+  }
   // 3. initialize ros 
   goal_sub_   = nh_.subscribe("/desired_3D_pose", 1, &BeetlePoseRLAgent::goalCallback, this);
   gimbal_sub_ = nh_.subscribe("joint_states", 1, &BeetlePoseRLAgent::gimbalCallback, this);
@@ -179,6 +189,10 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
   thrust_debug_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command_debug", 1);
   gimbal_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl", 1);
+  gimbal_effort_pub1_ = nh_.advertise<std_msgs::Float64>("servo_controller/gimbals/controller1/simulation/command", 1);
+  gimbal_effort_pub2_ = nh_.advertise<std_msgs::Float64>("servo_controller/gimbals/controller2/simulation/command", 1);
+  gimbal_effort_pub3_ = nh_.advertise<std_msgs::Float64>("servo_controller/gimbals/controller3/simulation/command", 1);
+  gimbal_effort_pub4_ = nh_.advertise<std_msgs::Float64>("servo_controller/gimbals/controller4/simulation/command", 1);
   gimbal_debug_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl_debug", 1);
   obs_debug_pub_ = nh_.advertise<std_msgs::Float32MultiArray>("observation_debug", 1);
 
@@ -191,6 +205,7 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   {
     gimbal_cmd_.name.emplace_back(gimbal_names_[i]);
     gimbal_cmd_.position.push_back(gimbal_default_pos_[i]);
+    gimbal_cmd_.effort.push_back(0.0);
   }
   if (verbose_)
     ROS_INFO("[RL-Agent] Initialized Successfully.");
@@ -220,9 +235,19 @@ bool BeetlePoseRLAgent::update()
           "[RL-Agent]\n"
           "ORT Inference (last %.2fs): calls=%lu\n"
           "  avg_time=%.3f ms, avg_period=%.3f ms\n"
-          "  min=%.3f ms, max=%.3f ms\n"
+          "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+          "Pos Error: [%.3f, %.3f, %.3f]\n"
+          "Ang Error: [%.3f, %.3f, %.3f]\n"
           "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n",
-          elapsed, static_cast<unsigned long>(infer_count_), avg_ms, avg_period_ms, min_ms, max_ms);
+          elapsed,
+          static_cast<unsigned long>(infer_count_),
+          avg_ms,
+          avg_period_ms,
+          min_ms,
+          max_ms,
+          pos_error.x(), pos_error.y(), pos_error.z(),
+          ang_error.x(), ang_error.y(), ang_error.z()
+       );
     // reset counters
     infer_count_ = 0;
     infer_total_ns_ = 0;
@@ -266,6 +291,11 @@ void BeetlePoseRLAgent::policyForward()
 {
   // std::cout << "-------- [RL Agent] policyForward() called --------" << std::endl;
   // Create input tensor object from data values
+  if (!catch_obs_) {
+    ROS_WARN_THROTTLE(2.0, "[RL-Agent] No valid observation constructed yet, skipping policyForward()");
+    action_.assign(action_size_, 0.0f);
+    return;
+  }
   std::vector<int64_t> input_shape = {1, static_cast<int64_t>(observation_.size())};
   Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
   Ort::Value input_tensor = Ort::Value::CreateTensor<float>(mem_info, observation_.data(), observation_.size(), input_shape.data(), input_shape.size());
@@ -323,6 +353,7 @@ void BeetlePoseRLAgent::policyForward()
   else {
     action_ = action;
   }
+  catch_obs_ = false;
   // std::cout << "-------- [RL Agent] policyForward() finished --------" << std::endl;
 }
 
@@ -381,8 +412,15 @@ void BeetlePoseRLAgent::buildObservation()
 {
   // std::cout << "-------- [RL Agent] buildObservation() called --------" << std::endl;
   std::lock_guard<std::mutex> lk(data_mutex_);
-  if (!gimbal_catch_ || !odom_catch_) {
+  if (!gimbal_catch_ ) {
     ROS_WARN_THROTTLE(2.0, "[RL-Agent] No gimbal state received yet!");
+    catch_obs_ = false;
+    return;
+  }
+  if (ideal_obs_ && !odom_catch_) {
+    ROS_WARN_THROTTLE(2.0, "[RL-Agent] No Odometry received yet!");
+    catch_obs_ = false;
+    return;
   }
   // body quaternion and pos
   tf::Quaternion body_quat;
@@ -407,20 +445,37 @@ void BeetlePoseRLAgent::buildObservation()
     body_pos = estimator_->getPos(Frame::BASELINK, estimate_mode_);
   // linear velocity of COM in body frame
   tf::Vector3 lin_vel_world;
-  if (ideal_obs_)
+  if (ideal_obs_) {
+    // handle ideal delay buffer
     lin_vel_world = tf::Vector3(odom_msg_.twist.twist.linear.x,
                   odom_msg_.twist.twist.linear.y,
                   odom_msg_.twist.twist.linear.z);
+    if (ideal_delay_ > 0) {
+      lin_vel_list_.push_back(lin_vel_world);
+      lin_vel_world = lin_vel_list_.front();
+      if (static_cast<int>(lin_vel_list_.size()) > ideal_delay_ + 1) {
+        lin_vel_list_.erase(lin_vel_list_.begin());
+      }
+    }
+  }
   else
     lin_vel_world  = estimator_->getVel(Frame::COG, estimate_mode_);
+  
   tf::Vector3 lin_vel_body = rotate_by_quat_inv(body_quat, lin_vel_world);
-  // tf::Vector3 lin_vel_body = lin_vel_world;
 
   tf::Vector3 ang_vel_body;
-  if (ideal_obs_)
+  if (ideal_obs_) {
     ang_vel_body = tf::Vector3(odom_msg_.twist.twist.angular.x,
                   odom_msg_.twist.twist.angular.y,
                   odom_msg_.twist.twist.angular.z);
+    if (ideal_delay_ > 0) {
+      ang_vel_list_.push_back(ang_vel_body);
+      ang_vel_body = ang_vel_list_.front();
+      if (static_cast<int>(ang_vel_list_.size()) > ideal_delay_ + 1) {
+        ang_vel_list_.erase(ang_vel_list_.begin()); 
+      }
+    }
+  }
   else
     ang_vel_body = estimator_->getAngularVel(Frame::COG, estimate_mode_);
   // tf::Vector3 ang_vel_body = rotate_by_quat_inv(body_quat, ang_vel_world);
@@ -485,6 +540,7 @@ void BeetlePoseRLAgent::buildObservation()
     // trim if larger
     observation_.assign(temp_obs.begin(), temp_obs.begin() + obs_size_);
   }
+  catch_obs_ = true;
   // std::cout << "-------- [RL Agent`] buildObservation() finished --------" << std::endl;
 }
 
@@ -499,12 +555,10 @@ void BeetlePoseRLAgent::sendCmd()
   }
   if (gimbal_effort_ctrl_) {
     // compute effort command using PD control
-    if (!gimbal_cmd_.effort.empty()) gimbal_cmd_.effort.clear();
     for (size_t i = 0; i < gimbal_size_; ++i) {
-      double pos_err = target_gimbal_[i] - (gimbal_pos_[i] + gimbal_default_pos_[i]);
-      double vel_err = 0.0 - gimbal_vel_[i]; // assume zero velocity feedback for now
-      double effort_cmd = gimbal_kp_ * pos_err + gimbal_kd_ * vel_err;
-      gimbal_cmd_.effort.push_back(effort_cmd);
+      double pos_err = target_gimbal_[i] - gimbal_pos_[i];
+      double vel_err = - gimbal_vel_[i]; // assume zero velocity feedback for now
+      gimbal_cmd_.effort[i] = static_cast<float>(gimbal_kp_ * pos_err + gimbal_kd_ * vel_err);
     }
   }
   for (size_t i = 0; i < thrust_size_; ++i) {
@@ -512,8 +566,22 @@ void BeetlePoseRLAgent::sendCmd()
     thrust_cmd_.base_thrust[i] = target_thrust_[i];
   }
   gimbal_cmd_.header.stamp = ros::Time::now();
-  if (enable_gimbal_)
-    gimbal_pub_.publish(gimbal_cmd_);
+  if (enable_gimbal_){
+    if (gimbal_effort_ctrl_ )
+    {
+      std_msgs::Float64 effort_msg;
+      effort_msg.data = gimbal_cmd_.effort[0];
+      gimbal_effort_pub1_.publish(effort_msg);
+      effort_msg.data = gimbal_cmd_.effort[1];
+      gimbal_effort_pub2_.publish(effort_msg);
+      effort_msg.data = gimbal_cmd_.effort[2];
+      gimbal_effort_pub3_.publish(effort_msg);
+      effort_msg.data = gimbal_cmd_.effort[3];
+      gimbal_effort_pub4_.publish(effort_msg);
+    }
+    else
+      gimbal_pub_.publish(gimbal_cmd_);
+  }
   if (enable_thrust_ && control_timestamp_ > 0.0)
     thrust_pub_.publish(thrust_cmd_);
   if (debug_) {
@@ -533,8 +601,13 @@ void BeetlePoseRLAgent::sendCmd()
 
 void BeetlePoseRLAgent::goalCallback(const geometry_msgs::PoseStamped::ConstPtr& msg)
 {
-  ROS_INFO("-------- [RL Agent] goalCallback() called --------");
+  // ROS_INFO("-------- [RL Agent] goalCallback() called --------");
   std::lock_guard<std::mutex> lock(data_mutex_);
+  if (msg->pose.position.z < 0.3) {
+    ROS_WARN("[RL-Agent] Received goal z position too low (%.3f), just skip update", msg->pose.position.z);
+    return;
+  }
+  ROS_INFO("[RL-Agent] New goal received: [%.3f, %.3f, %.3f]", msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
   desired_pose_ = *msg;
 }
 

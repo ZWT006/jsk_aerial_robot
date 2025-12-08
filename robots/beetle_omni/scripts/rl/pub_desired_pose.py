@@ -17,10 +17,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("x", type=float)
     parser.add_argument("y", type=float)
-    parser.add_argument("z", type=float)
-    parser.add_argument("roll", type=float)
-    parser.add_argument("pitch", type=float)
-    parser.add_argument("yaw", type=float)
+    parser.add_argument("z", type=float, default=0.5)
+    parser.add_argument("roll", type=float, default=0.0)
+    parser.add_argument("pitch", type=float, default=0.0)
+    parser.add_argument("yaw", type=float, default=0.0)
     parser.add_argument("--degrees", action="store_true", help="interpret roll/pitch/yaw as degrees (default)")
     parser.add_argument("--radians", action="store_true", help="interpret roll/pitch/yaw as radians")
     parser.add_argument("--frame", default="world", help="frame_id for PoseStamped")
@@ -39,6 +39,7 @@ def main():
         roll = math.radians(roll)
         pitch = math.radians(pitch)
         yaw = math.radians(yaw)
+        args.degrees = True  # for logging
 
     q = tf_trans.quaternion_from_euler(roll, pitch, yaw)  # returns [x,y,z,w]
     qx, qy, qz, qw = normalize_quat(q)

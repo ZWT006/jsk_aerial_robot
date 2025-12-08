@@ -8,6 +8,8 @@
 #include <std_msgs/UInt8.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Empty.h>
+#include <std_msgs/Float32.h>
+#include <std_msgs/Float64.h>
 #include <mutex>
 #include <vector>
 #include <chrono>
@@ -44,6 +46,11 @@ public:
 
         // Publishers
         gimbal_pub_ = nh_.advertise<sensor_msgs::JointState>("/beetle_omni/gimbals_ctrl", 1);
+        gimbal_pub_debug_ = nh_.advertise<sensor_msgs::JointState>("/beetle_omni/gimbals_ctrl_debug", 1);
+        gimbal_effort_pub1_ = nh_.advertise<std_msgs::Float64>("/beetle_omni/servo_controller/gimbals/controller1/simulation/command", 1);
+        gimbal_effort_pub2_ = nh_.advertise<std_msgs::Float64>("/beetle_omni/servo_controller/gimbals/controller2/simulation/command", 1);
+        gimbal_effort_pub3_ = nh_.advertise<std_msgs::Float64>("/beetle_omni/servo_controller/gimbals/controller3/simulation/command", 1);
+        gimbal_effort_pub4_ = nh_.advertise<std_msgs::Float64>("/beetle_omni/servo_controller/gimbals/controller4/simulation/command", 1);
 
         // defaults
         gimbal_default_pos_ = {0.0f, 0.0f, 0.0f, 0.0f};
@@ -130,7 +137,26 @@ public:
                 float default_pos = (i < gimbal_default_pos_.size()) ? gimbal_default_pos_[i] : 0.0f;
                 msg.position[i] = target_pos_[i] + default_pos;
             }
-            gimbal_pub_.publish(msg);
+            if (!gimbal_effort_ctrl_) gimbal_pub_.publish(msg);
+            gimbal_pub_debug_.publish(msg);
+
+            if (gimbal_effort_ctrl_) {
+                for (size_t i = 0; i < num; ++i) {
+                    float effort = 0.0f;
+                    {
+                        std::lock_guard<std::mutex> lk(data_mutex_);
+                        float pos_err = target_pos_[i] + gimbal_default_pos_[i] - gimbal_pos_[i];
+                        float vel_err = - gimbal_vel_[i];
+                        effort = static_cast<float>(kp_ * pos_err + kd_ * vel_err);
+                    }
+                    std_msgs::Float64 effort_msg;
+                    effort_msg.data = effort;
+                    if (i == 0) gimbal_effort_pub1_.publish(effort_msg);
+                    else if (i == 1) gimbal_effort_pub2_.publish(effort_msg);
+                    else if (i == 2) gimbal_effort_pub3_.publish(effort_msg);
+                    else if (i == 3) gimbal_effort_pub4_.publish(effort_msg);
+                }
+            }
 
             // warn once in a while if names missing
             {
@@ -261,17 +287,31 @@ public:
     void setSaveEnable(bool save_enable) {
         save_enable_ = save_enable;
     }
+    void setGains(double kp, double kd, bool gimbal_effort_ctrl, double default_gimbal) {
+        kp_ = kp;
+        kd_ = kd;
+        gimbal_effort_ctrl_ = gimbal_effort_ctrl;
+        gimbal_default_pos_ = std::vector<float>(4, static_cast<float>(default_gimbal));
+    }
 
 private:
     // -------- ROS
     ros::NodeHandle nh_;
     ros::Subscriber gimbal_sub_;
     ros::Publisher gimbal_pub_;
+    ros::Publisher gimbal_pub_debug_;
+    ros::Publisher gimbal_effort_pub1_;
+    ros::Publisher gimbal_effort_pub2_;
+    ros::Publisher gimbal_effort_pub3_;
+    ros::Publisher gimbal_effort_pub4_;
 
     // -------- data
     std::mutex data_mutex_;
     sensor_msgs::JointState gimbal_msg_;
     bool gimbal_catch_ = false;
+    double kp_ = 0.285;
+    double kd_ = 0.019;
+    bool gimbal_effort_ctrl_ = false;
 
     // -------- control
     double control_hz_;
@@ -285,6 +325,7 @@ private:
     std::chrono::high_resolution_clock::time_point start_time_;
     std::vector<std::vector<float>> gimbal_data_; // [step][data]
     std::vector<float> gimbal_pos_ = std::vector<float>(4, 0.0f);
+    std::vector<float> gimbal_vel_ = std::vector<float>(4, 0.0f);
     std::vector<float> last_gimbal_pos_ = std::vector<float>(4, 0.0f);
     std::vector<float> gimbal_default_pos_;
     // publishers data
@@ -298,6 +339,7 @@ private:
         // copy positions safely
         for (size_t i = 0; i < std::min<size_t>(msg->position.size(), gimbal_pos_.size()); ++i) {
             gimbal_pos_[i] = msg->position[i];
+            gimbal_vel_[i] = msg->velocity[i];
         }
         gimbal_catch_ = true;
     }
@@ -313,8 +355,15 @@ int main(int argc, char** argv) {
     double duration;
     double gimbal_range;
     double cmd_period;
+    double kp_, kd_;
+    bool gimbal_effort_ctrl;
+    double default_gimbal;
+    nh.param<double>("kp", kp_, 0.285);
+    nh.param<double>("kd", kd_, 0.019);
+    nh.param<bool>("effort_ctrl", gimbal_effort_ctrl, false);
     std::string save_path;
     nh.param<double>("duration", duration, 10.0);
+    nh.param<double>("default_gimbal", default_gimbal, 0.0);
     nh.param<int>("control_freq", freq, 200);
     nh.param<double>("gimbal_range", gimbal_range, M_PI);
     nh.param<double>("cmd_period", cmd_period, 2.0);
@@ -342,6 +391,7 @@ int main(int argc, char** argv) {
         GimbalResponse response(nh, freq, duration, gimbal_range, cmd_period, save_path);
         response.setControlEnable(enable_gimbal_0, enable_gimbal_1, enable_gimbal_2, enable_gimbal_3);
         response.setSaveEnable(enable_save);
+        response.setGains(kp_, kd_, gimbal_effort_ctrl, default_gimbal);
         response.spin();
     } catch (const std::exception& e) {
         ROS_ERROR("Exception: %s", e.what());

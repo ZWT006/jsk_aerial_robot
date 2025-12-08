@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   ###########  launch config  ###########
+  <!-- roslaunch beetle_omni bringup_nmpc_omni.launch real_machine:=false simulation:=True headless:=False nmpc_mode:=0 -->
   <arg name="real_machine" default="True" />
   <arg name="simulation" default="False" />
   <arg name="control_mode" default="0" />
@@ -62,7 +63,8 @@
 
    ###########  Control  ###########
     <rosparam file="$(arg config_dir)/PhysParamBeetleOmni.yaml" command="load" />
-    <rosparam file="$(arg config_dir)/BeetleRLAgent.yaml" command="load"/>
+    <rosparam file="$(arg config_dir)/BeetleRLAgentSim.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
+    <rosparam file="$(arg config_dir)/BeetleRLAgentReal.yaml" command="load" if="$(eval arg('real_machine') and not arg('simulation'))"/>
 <!--    <rosparam file="$(arg config_dir)/BeetleNMPCFull.yaml" command="load" if="$(eval arg('nmpc_mode') == 3)"/>-->
 <!--    <rosparam file="$(arg config_dir)/BeetleNMPCNoServoDelay.yaml" command="load" if="$(eval arg('nmpc_mode') == 6)"/>-->
 

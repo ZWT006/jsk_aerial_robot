@@ -14,6 +14,7 @@
 
 #include <deque>
 #include <std_msgs/Float32MultiArray.h>
+#include <std_msgs/Float64.h>
 #include <spinal/FourAxisCommand.h>
 #include <spinal/Imu.h>
 #include <sensor_msgs/JointState.h>
@@ -65,6 +66,7 @@ namespace aerial_robot_control
   private:
     ros::Subscriber goal_sub_, gimbal_sub_, odom_sub_, imu_sub_;
     ros::Publisher thrust_pub_, thrust_debug_pub_, gimbal_pub_, gimbal_debug_pub_;
+    ros::Publisher gimbal_effort_pub1_, gimbal_effort_pub2_, gimbal_effort_pub3_, gimbal_effort_pub4_;
     ros::Publisher obs_debug_pub_;
     spinal::FourAxisCommand thrust_cmd_;
     sensor_msgs::JointState gimbal_cmd_;
@@ -80,6 +82,8 @@ namespace aerial_robot_control
     geometry_msgs::Transform cog2root_T;
     geometry_msgs::Transform world2cog_T;
     geometry_msgs::Transform world2root_T;
+    std::deque<tf::Vector3> ang_vel_list_;
+    std::deque<tf::Vector3> lin_vel_list_;
 
     // ----------- general parameters -----------
     std::vector<float> observation_;
@@ -94,6 +98,7 @@ namespace aerial_robot_control
     bool verbose_ = false;
     bool debug_ = false;
     bool forward_info_ = false;
+    int ideal_delay_ = 4;
 
     std::map<std::string, double> scales;
 
@@ -107,6 +112,7 @@ namespace aerial_robot_control
     Ort::AllocatorWithDefaultOptions allocator_;
     const char* input_name_ = nullptr;
     const char* output_name_ = nullptr;
+    bool catch_obs_ = false;
 
     // ONNX inference timing stats
     size_t infer_count_ = 0;
@@ -135,6 +141,7 @@ namespace aerial_robot_control
     double thrust_default_;
     std::deque<std::vector<float>> target_gimbal_list_;
     std::vector<float> target_gimbal_;
+    std::vector<float> target_gimbal_effort_;
     std::vector<float> target_thrust_;
     double gimbal_kp_;
     double gimbal_kd_;
