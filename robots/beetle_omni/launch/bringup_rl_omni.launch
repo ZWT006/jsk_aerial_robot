@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <launch>
   ###########  launch config  ###########
-  <!-- roslaunch beetle_omni bringup_nmpc_omni.launch real_machine:=false simulation:=True headless:=False nmpc_mode:=0 -->
+  <!-- roslaunch beetle_omni bringup_rl_omni.launch real_machine:=false simulation:=True headless:=False -->
   <arg name="real_machine" default="True" />
   <arg name="simulation" default="False" />
   <arg name="control_mode" default="0" />
@@ -56,7 +56,7 @@
    <rosparam file="$(arg config_dir)/MotorInfoDShot.yaml" command="load" />
 
    ###########  Servo Config  ###########
-   <rosparam file="$(arg config_dir)/RLServo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
+   <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
    <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('real_machine') and not arg('simulation'))"/>
 
    ###########  Battery Config  ###########

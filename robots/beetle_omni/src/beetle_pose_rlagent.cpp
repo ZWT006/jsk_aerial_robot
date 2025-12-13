@@ -267,16 +267,10 @@ void BeetlePoseRLAgent::reset()
     ROS_INFO("[RL-Agent]Reset RL Agent.");
   last_infer_report_time_ = ros::Time::now();
   // Needs to be done: reset the mpc_solver with data
-  // if (!gimbal_cmd_.name.empty()) gimbal_cmd_.name.clear();
-  // if (!gimbal_cmd_.position.empty()) gimbal_cmd_.position.clear();
-  // for (int i = 0; i < gimbal_size_; i++)
-  // {
-  //   gimbal_cmd_.name.emplace_back(gimbal_names_[i]);
-  //   gimbal_cmd_.position.push_back(gimbal_default_pos_[i]);
-  // }
-  // if (!thrust_cmd_.base_thrust.empty()) thrust_cmd_.base_thrust.clear();
-  // thrust_cmd_.base_thrust = std::vector<float>(thrust_size_, 0.0);
-  // sendCmd();
+  action_.assign(action_size_, 0.0f);
+  for (size_t i = 4; i < action_.size(); ++i)
+    action_[i] = -thrust_default_/scales["thrust"];
+  sendCmd();
 }
 
 BeetlePoseRLAgent::~BeetlePoseRLAgent()
@@ -567,7 +561,7 @@ void BeetlePoseRLAgent::sendCmd()
   }
   gimbal_cmd_.header.stamp = ros::Time::now();
   if (enable_gimbal_){
-    if (gimbal_effort_ctrl_ )
+    if (gimbal_effort_ctrl_)
     {
       std_msgs::Float64 effort_msg;
       effort_msg.data = gimbal_cmd_.effort[0];

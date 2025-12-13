@@ -1,19 +1,24 @@
 aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
+# roslaunch beetle_omni bringup_rl_omni.launch real_machine:=false simulation:=True headless:=False
 # policy2025-12-05_13-21-20.onnx
 # policy-2025-12-06_16-55-18-20000.onnx ideal obs
 # policy-2025-12-06_20-47-26-10000.onnx
 # policy-2025-12-07_21-49-50-20000.onnx
+# policy-2025-12-09_20-26-18-20000.onnx
+# policy-2025-12-10_14-44-57-19000.onnx
+# policy-2025-12-12_10-32-54-10000.onnx # current best
+# policy-2025-12-12_13-55-59-20000.onnx
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-07_21-49-50-10000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2025-12-12_10-32-54-10000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
-  ideal_obs: false
+  ideal_obs: true
   ideal_delay: 2
   rlagent_verbose: false
   rlagent_debug: true
-  rlagent_forward_info: false
-  gimbal_target_delay_steps: 0
-  gimbal_obs_delay_steps: 0
+  rlagent_forward_info: true
+  gimbal_target_delay_steps: 2
+  gimbal_obs_delay_steps: 1
   enable_thrust: true
   enable_gimbal: true
   goal_pos_x: 0.0
@@ -24,9 +29,11 @@ rlagent:
   goal_angle_Y: 0.0
   thrust_default: 6.0
   gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
-  gimbal_kp: 0.285
-  gimbal_kd: 0.019
-  gimbal_effort_ctrl: true
+  # gimbal_kp: 0.285
+  # gimbal_kd: 0.019
+  gimbal_kp: 0.344964875
+  gimbal_kd: 0.0 # 0.0094725
+  gimbal_effort_ctrl: false
   gimbal_size: 4
   thrust_size: 4
   scales:
