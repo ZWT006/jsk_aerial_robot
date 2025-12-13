@@ -105,6 +105,7 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<int>(rl_nh,"gimbal_target_delay_steps", gimbal_target_delay_steps_, 0);
   getParam<int>(rl_nh,"gimbal_obs_delay_steps", gimbal_obs_delay_steps_, 0);
   getParam<bool>(rl_nh,"enable_thrust", enable_thrust_, false);
+  getParam<double>(rl_nh,"thrust_scale", thrust_scale_, 1.0);
   // getParam<bool>(rl_nh,"lock_thrust", lock_thrust_, false);
   getParam<bool>(rl_nh,"enable_gimbal", enable_gimbal_, false);
   // getParam<bool>(rl_nh,"lock_gimbal", lock_gimbal_, false);
@@ -557,7 +558,7 @@ void BeetlePoseRLAgent::sendCmd()
   }
   for (size_t i = 0; i < thrust_size_; ++i) {
     target_thrust_[i] = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
-    thrust_cmd_.base_thrust[i] = target_thrust_[i];
+    thrust_cmd_.base_thrust[i] = target_thrust_[i] * thrust_scale_;
   }
   gimbal_cmd_.header.stamp = ros::Time::now();
   if (enable_gimbal_){

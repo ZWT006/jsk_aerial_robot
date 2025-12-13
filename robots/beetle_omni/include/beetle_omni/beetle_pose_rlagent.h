@@ -143,6 +143,7 @@ namespace aerial_robot_control
     std::vector<float> target_gimbal_;
     std::vector<float> target_gimbal_effort_;
     std::vector<float> target_thrust_;
+    double thrust_scale_ = 1.0;
     double gimbal_kp_;
     double gimbal_kd_;
     bool gimbal_effort_ctrl_ = false;

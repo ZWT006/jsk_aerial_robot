@@ -124,9 +124,9 @@
         <origin xyz="0 0 0" rpy="0 0 0"/>
         <mass value="0.005"/>
         <inertia
-            ixx="0.001" ixy="0.0" ixz="0.0"
-            iyy="0.001" iyz="0.0"
-            izz="0.001"/>
+            ixx="0.00001" ixy="0.0" ixz="0.0"
+            iyy="0.00001" iyz="0.0"
+            izz="0.00001"/>
       </inertial>
     </link>
     <xacro:damping_factor link="thrust${self}"/>
@@ -135,7 +135,7 @@
 
     #### gimbal joints ####
     <joint name="gimbal${self}" type="revolute">
-      <limit effort="6.6" lower="-3.926991" upper="3.926991" velocity="3.0"/>
+      <limit effort="3.0" lower="-7.926991" upper="7.926991" velocity="10.0"/>
       <parent link="rotor_arm${self}"/>
       <child link="gimbal_link${self}"/>
       <origin rpy="0 0 0" xyz="0 0 0"/>
