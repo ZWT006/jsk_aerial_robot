@@ -104,6 +104,7 @@ namespace aerial_robot_control
 
     tf::Vector3 pos_error;
     tf::Vector3 ang_error;
+    tf::Vector3 pos_body,ang_body,pos_goal,ang_goal;
 
     // ----------- ONNX Runtime -----------
     std::unique_ptr<Ort::Env> env_;
@@ -146,7 +147,7 @@ namespace aerial_robot_control
     std::deque<std::vector<float>> target_thrust_list_;
     std::vector<float> target_thrust_;
     int thrust_target_delay_steps_ = 0;
-    double thrust_scale_ = 1.0;
+    double thrust_scale_ = 0.0;
     double gimbal_kp_;
     double gimbal_kd_;
     bool gimbal_effort_ctrl_ = false;
