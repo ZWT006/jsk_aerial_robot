@@ -8,8 +8,13 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-10_14-44-57-19000.onnx
 # policy-2025-12-12_10-32-54-10000.onnx # current best
 # policy-2025-12-12_13-55-59-20000.onnx
+# policy-2025-12-13_22-59-22-20000.onnx
+# policy-2025-12-14_21-59-46-20000.onnx
+# policy-2025-12-14_19-50-42-7000.onnx
+# policy-2025-12-15_15-19-58-12000.onnx
+# policy-2025-12-15_14-40-00-6000.onnx
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-12_10-32-54-10000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2025-12-15_14-40-00-6000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   ideal_obs: false
@@ -17,10 +22,12 @@ rlagent:
   rlagent_verbose: false
   rlagent_debug: true
   rlagent_forward_info: true
-  gimbal_target_delay_steps: 2
-  gimbal_obs_delay_steps: 1
+  gimbal_target_delay_steps: 0
+  gimbal_obs_delay_steps: 0
   enable_thrust: true
   thrust_scale: 1.0
+  thrust_tau: 0.0
+  thrust_target_delay_steps: 1
   enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
@@ -42,3 +49,5 @@ rlagent:
     agn_vel: 0.2
     gimbal_act: 0.25
     thrust_act: 1.25
+    clip_observation: 100.0
+    clip_action: 100.0

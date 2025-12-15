@@ -106,6 +106,8 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<int>(rl_nh,"gimbal_obs_delay_steps", gimbal_obs_delay_steps_, 0);
   getParam<bool>(rl_nh,"enable_thrust", enable_thrust_, false);
   getParam<double>(rl_nh,"thrust_scale", thrust_scale_, 1.0);
+  getParam<double>(rl_nh,"thrust_tau", thrust_tau_, 0.05);
+  getParam<int>(rl_nh,"thrust_target_delay_steps", thrust_target_delay_steps_, 0);
   // getParam<bool>(rl_nh,"lock_thrust", lock_thrust_, false);
   getParam<bool>(rl_nh,"enable_gimbal", enable_gimbal_, false);
   // getParam<bool>(rl_nh,"lock_gimbal", lock_gimbal_, false);
@@ -171,9 +173,29 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   }
   target_gimbal_.resize(gimbal_size_);
   target_thrust_.resize(thrust_size_);
+  target_gimbal_.assign(gimbal_size_, 0.0);
+  target_thrust_.assign(thrust_size_, 0.0);
   last_action_.resize(action_size_);
   gimbal_pos_.resize(gimbal_size_, 0.0);
   gimbal_vel_.resize(gimbal_size_, 0.0);
+  gimbal_pos_.assign(gimbal_size_, 0.0);
+  gimbal_vel_.assign(gimbal_size_, 0.0);
+
+  target_gimbal_list_.clear();
+  if (gimbal_target_delay_steps_ > 0) {
+      // pre-fill with current target_gimbal_ so initial outputs are stable
+      for (int i = 0; i < gimbal_target_delay_steps_; ++i) target_gimbal_list_.push_back(target_gimbal_);
+  }
+  gimbal_pos_list_.clear();
+  if (gimbal_obs_delay_steps_ > 0) {
+      // pre-fill with current gimbal_pos_ so initial observations are stable
+      for (int i = 0; i < gimbal_obs_delay_steps_; ++i) gimbal_pos_list_.push_back(gimbal_pos_);
+  }
+  target_thrust_list_.clear();
+  if (thrust_target_delay_steps_ > 0) {
+      // pre-fill with current target_thrust_ so initial outputs are stable
+      for (int i = 0; i < thrust_target_delay_steps_; ++i) target_thrust_list_.push_back(target_thrust_);
+  }
 
   ang_vel_list_.clear();
   lin_vel_list_.clear();
@@ -291,6 +313,13 @@ void BeetlePoseRLAgent::policyForward()
     action_.assign(action_size_, 0.0f);
     return;
   }
+  // Clamp observation values to finite numbers
+  for (size_t i = 0; i < observation_.size(); ++i) {
+    if (observation_[i] > scales["clip_observation"]) 
+      observation_[i] = scales["clip_observation"];
+    else if (observation_[i] < -scales["clip_observation"]) 
+      observation_[i] = -scales["clip_observation"];
+  }
   std::vector<int64_t> input_shape = {1, static_cast<int64_t>(observation_.size())};
   Ort::MemoryInfo mem_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
   Ort::Value input_tensor = Ort::Value::CreateTensor<float>(mem_info, observation_.data(), observation_.size(), input_shape.data(), input_shape.size());
@@ -347,6 +376,13 @@ void BeetlePoseRLAgent::policyForward()
   }
   else {
     action_ = action;
+  }
+  // Clamp action values to finite numbers
+  for (size_t i = 0; i < action_.size(); ++i) {
+    if (action_[i] > scales["clip_action"]) 
+      action_[i] = scales["clip_action"];
+    else if (action_[i] < -scales["clip_action"]) 
+      action_[i] = -scales["clip_action"];
   }
   catch_obs_ = false;
   // std::cout << "-------- [RL Agent] policyForward() finished --------" << std::endl;
@@ -498,6 +534,14 @@ void BeetlePoseRLAgent::buildObservation()
   goal_rot_mat.getRPY(goal_roll, goal_pitch, goal_yaw);
   ang_error = tf::Vector3(goal_roll, goal_pitch, goal_yaw);
 
+  if (gimbal_obs_delay_steps_ > 0) {
+      gimbal_pos_list_.push_back(gimbal_pos_);
+      gimbal_pos_ = gimbal_pos_list_.front();
+      if (static_cast<int>(gimbal_pos_list_.size()) > gimbal_obs_delay_steps_ + 1) {
+          gimbal_pos_list_.erase(gimbal_pos_list_.begin());
+      }
+  }
+
   // root_rot_vec and goal_rot_vec: approximate by taking first 2x3 of rotation matrix (6 elements)
   tf::Matrix3x3 Rb(body_quat), Rg(goal_quat);
   // take rows 0..1 and cols 0..2 -> 2x3 flattened == 6 elements
@@ -546,6 +590,15 @@ void BeetlePoseRLAgent::sendCmd()
   }
   for (size_t i = 0; i < gimbal_size_; ++i) {
     target_gimbal_[i] = action_[i] * scales["gimbal_act"] + gimbal_default_pos_[i];
+  }
+  if (gimbal_target_delay_steps_ > 0) {
+      target_gimbal_list_.push_back(target_gimbal_);
+      target_gimbal_ = target_gimbal_list_.front();
+      if (static_cast<int>(target_gimbal_list_.size()) > gimbal_target_delay_steps_ + 1) {
+          target_gimbal_list_.erase(target_gimbal_list_.begin());
+      }
+  }
+  for (size_t i = 0; i < gimbal_size_; ++i) {
     gimbal_cmd_.position[i] = target_gimbal_[i];
   }
   if (gimbal_effort_ctrl_) {
@@ -556,8 +609,31 @@ void BeetlePoseRLAgent::sendCmd()
       gimbal_cmd_.effort[i] = static_cast<float>(gimbal_kp_ * pos_err + gimbal_kd_ * vel_err);
     }
   }
+  if (thrust_tau_ > 0.0)  {
+    for (size_t i = 0; i < thrust_size_; ++i) {
+      double a = std::exp(- (1.0 / 200.0) / thrust_tau_);
+      double thrust_input = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
+      double thrust_old = target_thrust_[i];
+      target_thrust_[i] = a * thrust_old + (1 - a) * thrust_input;
+    }
+  }
+  else {
+    for (size_t i = 0; i < thrust_size_; ++i) {
+      target_thrust_[i] = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
+    }
+  }
+  if (thrust_target_delay_steps_ > 0) {
+      target_thrust_list_.push_back(target_thrust_);
+      target_thrust_ = target_thrust_list_.front();
+      if (static_cast<int>(target_thrust_list_.size()) > thrust_target_delay_steps_ + 1) {
+          target_thrust_list_.erase(target_thrust_list_.begin());
+      }
+  }
   for (size_t i = 0; i < thrust_size_; ++i) {
-    target_thrust_[i] = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
+      if (!std::isfinite(target_thrust_[i])) {
+        std::cout << "BAD target_thrust_ at i=" << i << std::endl;
+        target_thrust_[i] = thrust_default_;
+      }
     thrust_cmd_.base_thrust[i] = target_thrust_[i] * thrust_scale_;
   }
   gimbal_cmd_.header.stamp = ros::Time::now();

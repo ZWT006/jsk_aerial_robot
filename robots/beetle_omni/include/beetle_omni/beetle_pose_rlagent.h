@@ -139,10 +139,13 @@ namespace aerial_robot_control
     std::vector<std::string> gimbal_names_;
     std::deque<std::vector<float>> gimbal_pos_list_;
     double thrust_default_;
+    double thrust_tau_;
     std::deque<std::vector<float>> target_gimbal_list_;
     std::vector<float> target_gimbal_;
     std::vector<float> target_gimbal_effort_;
+    std::deque<std::vector<float>> target_thrust_list_;
     std::vector<float> target_thrust_;
+    int thrust_target_delay_steps_ = 0;
     double thrust_scale_ = 1.0;
     double gimbal_kp_;
     double gimbal_kd_;
