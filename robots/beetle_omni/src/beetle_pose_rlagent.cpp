@@ -94,10 +94,12 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   }
 
   double goal_angle_R, goal_angle_P, goal_angle_Y;
+  std::string odom_topic;
   XmlRpc::XmlRpcValue gimbal_default_xml, scales_xml;
   getParam<double>(rl_nh,"control_freq", control_hz_, 200.0);
   getParam<int>(rl_nh,"decimation", decimation_, 4);
   getParam<bool>(rl_nh,"ideal_obs", ideal_obs_, false);
+  getParam<std::string>(rl_nh,"ideal_obs_topic", odom_topic, "uav/cog/odom");
   getParam<int>(rl_nh,"ideal_delay", ideal_delay_, 4);  // 100Hz 
   getParam<bool>(rl_nh,"rlagent_verbose", verbose_, false);
   getParam<bool>(rl_nh,"rlagent_debug", debug_, false);
@@ -115,6 +117,9 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<double>(rl_nh,"goal_angle_P", goal_angle_P, 0.0);
   getParam<double>(rl_nh,"goal_angle_Y", goal_angle_Y, 0.0);
   getParam<double>(rl_nh,"thrust_default", thrust_default_, 0.0);
+  getParam<double>(rl_nh,"thrust_scale", thrust_scale_, 0.0);
+  if (thrust_scale_ > 1.0)
+    thrust_scale_ = 1.0;
   getParam<XmlRpc::XmlRpcValue>(rl_nh,"gimbal_default", gimbal_default_xml, XmlRpc::XmlRpcValue());
   getParam<XmlRpc::XmlRpcValue>(rl_nh,"scales", scales_xml, XmlRpc::XmlRpcValue());
   getParam<int>(rl_nh,"gimbal_size", gimbal_size_, 4);
@@ -127,6 +132,9 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   desired_pose_.pose.orientation.y = quat.y();
   desired_pose_.pose.orientation.z = quat.z();
   desired_pose_.pose.orientation.w = quat.w();
+  std::cout << "Desired \n";
+  std::cout << "Pos : " << desired_pose_.pose.position.x << ", " << desired_pose_.pose.position.y << ", " << desired_pose_.pose.position.z << "\n";
+  std::cout << "Ori : " << desired_pose_.pose.orientation.x << ", " << desired_pose_.pose.orientation.y << ", " << desired_pose_.pose.orientation.z << ", " << desired_pose_.pose.orientation.w << "\n";
 
   for (auto it = gimbal_default_xml.begin(); it != gimbal_default_xml.end(); ++it)
   {
@@ -185,7 +193,7 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   // 3. initialize ros 
   goal_sub_   = nh_.subscribe("/desired_3D_pose", 1, &BeetlePoseRLAgent::goalCallback, this);
   gimbal_sub_ = nh_.subscribe("joint_states", 1, &BeetlePoseRLAgent::gimbalCallback, this);
-  odom_sub_ = nh_.subscribe("ground_truth", 1, &BeetlePoseRLAgent::odomCallback, this);
+  odom_sub_ = nh_.subscribe(odom_topic, 1, &BeetlePoseRLAgent::odomCallback, this);
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
   thrust_debug_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command_debug", 1);
   gimbal_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl", 1);
@@ -235,9 +243,14 @@ bool BeetlePoseRLAgent::update()
           "[RL-Agent]\n"
           "ORT Inference (last %.2fs): calls=%lu\n"
           "  avg_time=%.3f ms, avg_period=%.3f ms\n"
+          "  min_time=%.3f ms, max_time=%.3f ms\n"
           "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
           "Pos Error: [%.3f, %.3f, %.3f]\n"
           "Ang Error: [%.3f, %.3f, %.3f]\n"
+          "Pos Body : [%.3f, %.3f, %.3f]\n"
+          "Ang Body : [%.3f, %.3f, %.3f]\n"
+          "Pos Goal : [%.3f, %.3f, %.3f]\n"
+          "Ang Goal : [%.3f, %.3f, %.3f]\n"
           "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n",
           elapsed,
           static_cast<unsigned long>(infer_count_),
@@ -246,7 +259,11 @@ bool BeetlePoseRLAgent::update()
           min_ms,
           max_ms,
           pos_error.x(), pos_error.y(), pos_error.z(),
-          ang_error.x(), ang_error.y(), ang_error.z()
+          ang_error.x(), ang_error.y(), ang_error.z(),
+          pos_body.x(), pos_body.y(), pos_body.z(),
+          ang_body.x(), ang_body.y(), ang_body.z(),
+          pos_goal.x(), pos_goal.y(), pos_goal.z(),
+          ang_goal.x(), ang_goal.y(), ang_goal.z()
        );
     // reset counters
     infer_count_ = 0;
@@ -437,6 +454,13 @@ void BeetlePoseRLAgent::buildObservation()
                           odom_msg_.pose.pose.position.z);
   else
     body_pos = estimator_->getPos(Frame::BASELINK, estimate_mode_);
+
+  pos_body = body_pos;
+  double body_roll, body_pitch, body_yaw;
+  tf::Matrix3x3 body_rot_mat(body_quat);
+  body_rot_mat.getRPY(body_roll, body_pitch, body_yaw);
+  ang_body = tf::Vector3(body_roll, body_pitch, body_yaw);
+
   // linear velocity of COM in body frame
   tf::Vector3 lin_vel_world;
   if (ideal_obs_) {
@@ -487,15 +511,22 @@ void BeetlePoseRLAgent::buildObservation()
                           desired_pose_.pose.position.y,
                           desired_pose_.pose.position.z);
   // compute goal in body frame: q_inv * (goal - body_pos)
+
+  pos_goal = goal_world;
+  double goal_roll, goal_pitch, goal_yaw;
+  tf::Matrix3x3 goal_rot_mat(goal_quat);
+  goal_rot_mat.getRPY(goal_roll, goal_pitch, goal_yaw);
+  ang_goal = tf::Vector3(goal_roll, goal_pitch, goal_yaw);
+
   tf::Vector3 t02_minus_t01 = goal_world - body_pos;
   tf::Vector3 goal_pos = rotate_by_quat_inv(body_quat, t02_minus_t01);
   goal_quat = body_quat.inverse() * goal_quat;
 
   pos_error = goal_pos;
-  tf::Matrix3x3 goal_rot_mat(goal_quat);
-  double goal_roll, goal_pitch, goal_yaw;
-  goal_rot_mat.getRPY(goal_roll, goal_pitch, goal_yaw);
-  ang_error = tf::Vector3(goal_roll, goal_pitch, goal_yaw);
+  double error_roll, error_pitch, error_yaw;
+  tf::Matrix3x3 error_rot_mat(goal_quat);
+  error_rot_mat.getRPY(error_roll, error_pitch, error_yaw);
+  ang_error = tf::Vector3(error_roll, error_pitch, error_yaw);
 
   // root_rot_vec and goal_rot_vec: approximate by taking first 2x3 of rotation matrix (6 elements)
   tf::Matrix3x3 Rb(body_quat), Rg(goal_quat);
@@ -557,7 +588,7 @@ void BeetlePoseRLAgent::sendCmd()
   }
   for (size_t i = 0; i < thrust_size_; ++i) {
     target_thrust_[i] = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
-    thrust_cmd_.base_thrust[i] = target_thrust_[i];
+    thrust_cmd_.base_thrust[i] = target_thrust_[i] * thrust_scale_;
   }
   gimbal_cmd_.header.stamp = ros::Time::now();
   if (enable_gimbal_){

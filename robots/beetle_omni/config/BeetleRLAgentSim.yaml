@@ -20,6 +20,7 @@ rlagent:
   gimbal_target_delay_steps: 2
   gimbal_obs_delay_steps: 1
   enable_thrust: true
+  thrust_scale: 1.0
   enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
