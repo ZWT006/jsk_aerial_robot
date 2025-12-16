@@ -270,10 +270,10 @@ bool BeetlePoseRLAgent::update()
           "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
           "Pos Error: [%.3f, %.3f, %.3f]\n"
           "Ang Error: [%.3f, %.3f, %.3f]\n"
-          "Pos Body : [%.3f, %.3f, %.3f]\n"
-          "Ang Body : [%.3f, %.3f, %.3f]\n"
-          "Pos Goal : [%.3f, %.3f, %.3f]\n"
-          "Ang Goal : [%.3f, %.3f, %.3f]\n"
+          // "Pos Body : [%.3f, %.3f, %.3f]\n"
+          // "Ang Body : [%.3f, %.3f, %.3f]\n"
+          // "Pos Goal : [%.3f, %.3f, %.3f]\n"
+          // "Ang Goal : [%.3f, %.3f, %.3f]\n"
           "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n",
           elapsed,
           static_cast<unsigned long>(infer_count_),
@@ -282,11 +282,11 @@ bool BeetlePoseRLAgent::update()
           min_ms,
           max_ms,
           pos_error.x(), pos_error.y(), pos_error.z(),
-          ang_error.x(), ang_error.y(), ang_error.z(),
-          pos_body.x(), pos_body.y(), pos_body.z(),
-          ang_body.x(), ang_body.y(), ang_body.z(),
-          pos_goal.x(), pos_goal.y(), pos_goal.z(),
-          ang_goal.x(), ang_goal.y(), ang_goal.z()
+          ang_error.x(), ang_error.y(), ang_error.z()
+          // pos_body.x(), pos_body.y(), pos_body.z(),
+          // ang_body.x(), ang_body.y(), ang_body.z(),
+          // pos_goal.x(), pos_goal.y(), pos_goal.z(),
+          // ang_goal.x(), ang_goal.y(), ang_goal.z()
        );
     // reset counters
     infer_count_ = 0;

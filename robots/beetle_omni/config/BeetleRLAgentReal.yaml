@@ -17,17 +17,19 @@ rlagent:
   gimbal_obs_delay_steps: 0
   enable_thrust: true
   thrust_scale: 1.0
+  thrust_tau: 0.0
+  thrust_target_delay_steps: 1
   enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
-  goal_pos_z: 0.7
+  goal_pos_z: 0.8
   goal_angle_R: 0.0
   goal_angle_P: 0.0
   goal_angle_Y: 0.0
   thrust_default: 6.0
   gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
-  gimbal_kp: 0.285
-  gimbal_kd: 0.019
+  gimbal_kp: 0.344964875
+  gimbal_kd: 0.0094725 # 
   gimbal_effort_ctrl: false
   gimbal_size: 4
   thrust_size: 4
@@ -36,3 +38,5 @@ rlagent:
     agn_vel: 0.2
     gimbal_act: 0.25
     thrust_act: 1.25
+    clip_observation: 100.0
+    clip_action: 100.0
