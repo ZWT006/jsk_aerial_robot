@@ -157,6 +157,16 @@ void nmpc::TiltMtServoNMPC::initGeneralParams()
   getParam<bool>(nmpc_nh, "is_print_phys_params", is_print_phys_params_, false);
   getParam<bool>(nmpc_nh, "is_debug", is_debug_, false);
 
+  getParam<int>(control_nh, "thrust_target_delay_steps", thrust_target_delay_steps_, 0);
+  getParam<double>(control_nh, "thrust_tau", thrust_tau_, 0.0);
+  target_thrust_.resize(motor_num_);
+  target_thrust_.assign(motor_num_, 0.0);
+  target_thrust_list_.clear();
+  if (thrust_target_delay_steps_ > 0) {
+      // pre-fill with current target_thrust_ so initial outputs are stable
+      for (int i = 0; i < thrust_target_delay_steps_; ++i) target_thrust_list_.push_back(target_thrust_);
+  }
+
   if (is_debug_)
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Debug);
 }
@@ -506,10 +516,35 @@ void nmpc::TiltMtServoNMPC::controlCore()
 
   /* get result */
   // - thrust
+  double a = std::exp(- (1.0 / 200.0) / thrust_tau_);
+  if (thrust_tau_ > 0.0)  {
+    for (size_t i = 0; i < motor_num_; ++i) {
+      
+      double thrust_input = (float)getCommand(i);
+      double thrust_old = target_thrust_[i];
+      target_thrust_[i] = a * thrust_old + (1 - a) * thrust_input;
+    }
+  }
+  else {
+    for (size_t i = 0; i < motor_num_; ++i) {
+      target_thrust_[i] = getCommand(i);
+    }
+  }
+  if (thrust_target_delay_steps_ > 0) {
+      target_thrust_list_.push_back(target_thrust_);
+      target_thrust_ = target_thrust_list_.front();
+      if (static_cast<int>(target_thrust_list_.size()) > thrust_target_delay_steps_ + 1) {
+          target_thrust_list_.erase(target_thrust_list_.begin());
+      }
+  }
   for (int i = 0; i < motor_num_; i++)
   {
-    flight_cmd_.base_thrust[i] = (float)getCommand(i);
+    flight_cmd_.base_thrust[i] = target_thrust_[i];
   }
+  // for (int i = 0; i < motor_num_; i++)
+  // {
+  //   flight_cmd_.base_thrust[i] = (float)getCommand(i);
+  // }  
 
   // - servo angle
   gimbal_ctrl_cmd_.header.stamp = ros::Time::now();

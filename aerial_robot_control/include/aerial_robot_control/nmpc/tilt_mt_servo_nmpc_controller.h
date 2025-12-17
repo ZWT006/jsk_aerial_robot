@@ -111,6 +111,11 @@ protected:
   spinal::FourAxisCommand flight_cmd_;
   sensor_msgs::JointState gimbal_ctrl_cmd_;
 
+  std::deque<std::vector<float>> target_thrust_list_;
+  std::vector<float> target_thrust_;
+  int thrust_target_delay_steps_ = 0;
+  double thrust_tau_ = 0.0;
+
   // For singularity points
   int alloc_type_ = 0;
   double ft_thresh_;

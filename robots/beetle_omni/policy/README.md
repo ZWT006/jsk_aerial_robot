@@ -27,3 +27,7 @@ catkin build foxglove_bridge
 #  Web View: https://app.foxglove.dev/dragon-lab/dashboard
 roslaunch --screen foxglove_bridge foxglove_bridge.launch port:=8765
 ```
+
+
+#### Motor Test
+Calibrate the thrust/torque => PWM cmd, please refer [motor test](/aerial_robot_nerve/motor_test/README.md)

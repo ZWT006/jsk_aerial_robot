@@ -2,6 +2,9 @@ mpc_solver_name: aerial_robot_control::mpc_solver::TiltQdServoDistMdlMPCSolver
 aerial_robot_control_name: aerial_robot_control/nmpc_controller/tilt_mt/servo_dist_nmpc
 
 controller:
+  thrust_tau: 0.0 # 0.0342 # 0.0942
+  thrust_target_delay_steps: 1
+
   alloc:
     type: 1  # 0: pseudo allocation, 1: heuristic allocation,
     ft_thresh: 1.0  # N
