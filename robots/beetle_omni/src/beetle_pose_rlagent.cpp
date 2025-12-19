@@ -591,7 +591,7 @@ void BeetlePoseRLAgent::buildObservation()
   // ang vel (3) 6
   temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
   // gravity (3) 9
-  temp_obs.push_back(gravity_b.x()); temp_obs.push_back(gravity_b.y()); temp_obs.push_back(gravity_b.z());
+  // temp_obs.push_back(gravity_b.x()); temp_obs.push_back(gravity_b.y()); temp_obs.push_back(gravity_b.z());
   // goal pos (3) 12
   temp_obs.push_back(goal_pos.x()); temp_obs.push_back(goal_pos.y()); temp_obs.push_back(goal_pos.z());
   // gimbal dof (4) 16
