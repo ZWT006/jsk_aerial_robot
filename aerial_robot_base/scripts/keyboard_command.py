@@ -19,7 +19,7 @@ def getKey():
 if __name__=="__main__":
         settings = termios.tcgetattr(sys.stdin)
         rospy.init_node("keyboard_command")
-        robot_ns = rospy.get_param("~robot_ns", "");
+        robot_ns = rospy.get_param("~robot_ns", "")
 
         if not robot_ns:
                 master = rosgraph.Master('/rostopic')
@@ -53,19 +53,25 @@ if __name__=="__main__":
                         # takeoff and landing
                         if key == 'l':
                                 land_pub.publish(Empty())
+                                print("----- land command sent -----")
                                 #for hydra joints
                         if key == 'r':
                                 start_pub.publish(Empty())
+                                print("----- start command sent -----")
                                 #for hydra joints
                         if key == 'h':
                                 halt_pub.publish(Empty())
+                                print("----- halt command sent -----")
                                  #for hydra joints
                         if key == 'f':
                                 force_landing_pub.publish(Empty())
+                                print("----- force landing command sent -----")
                         if key == 't':
                                 takeoff_pub.publish(Empty())
+                                print("----- takeoff command sent -----")
                         if key == 'u':
                                 stair_pub.publish(Empty())
+                                print("----- stair command sent -----")
                         if key == 'x':
                                 motion_start_pub.publish()
                         if key == 'v':
