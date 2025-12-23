@@ -16,13 +16,17 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-16_22-57-33-20000.onnx
 # policy-2025-12-19_21-00-13-39000.onnx
 # policy-2025-12-21_22-10-04-26000.onnx
+# policy-2025-12-22_22-43-28-46000.onnx
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-21_22-10-04-26000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2025-12-22_22-43-28-46000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
+  fault_injection: true
   ideal_obs: false
-  ideal_obs_topic: "uav/cog/odom"
-  ideal_delay: 2
+  # ideal_obs_topic: "uav/cog/odom"
+  ideal_obs_topic: "uav/baselink/odom"
+  ideal_delay: 0
+  fc2root_transform: true
   rlagent_verbose: false
   rlagent_debug: true
   rlagent_forward_info: true

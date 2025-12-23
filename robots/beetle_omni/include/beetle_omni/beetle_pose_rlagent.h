@@ -62,9 +62,13 @@ namespace aerial_robot_control
     void gimbalCallback(const sensor_msgs::JointState::ConstPtr& msg);
     void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
     void imuCallback(const spinal::Imu::ConstPtr& msg);
+    void faultCallback(const std_msgs::Int8::ConstPtr& msg);
+    void brakeCallback(const std_msgs::Empty::ConstPtr& msg);
+    void unbrakeCallback(const std_msgs::Empty::ConstPtr& msg);
 
   private:
     ros::Subscriber goal_sub_, gimbal_sub_, odom_sub_, imu_sub_;
+    ros::Subscriber fault_sub_, brake_sub_, unbrake_sub_;
     ros::Publisher thrust_pub_, thrust_debug_pub_, gimbal_pub_, gimbal_debug_pub_;
     ros::Publisher gimbal_effort_pub1_, gimbal_effort_pub2_, gimbal_effort_pub3_, gimbal_effort_pub4_;
     ros::Publisher obs_debug_pub_;
@@ -106,6 +110,11 @@ namespace aerial_robot_control
     tf::Vector3 ang_error;
     tf::Vector3 pos_body,ang_body,pos_goal,ang_goal;
 
+    bool fc2root_transform_ = false;
+    tf::Vector3 root2fc_pos_;
+    tf::Quaternion root2fc_quat_;
+    geometry_msgs::Transform fc2root_T;
+
     // ----------- ONNX Runtime -----------
     std::unique_ptr<Ort::Env> env_;
     std::unique_ptr<Ort::SessionOptions> sess_opts_;
@@ -127,6 +136,7 @@ namespace aerial_robot_control
     bool lock_thrust_ = false;
     bool enable_gimbal_ = false;
     bool lock_gimbal_ = false;
+    bool fault_injection_ = false;
 
     int gimbal_size_;
     int thrust_size_;
@@ -146,8 +156,10 @@ namespace aerial_robot_control
     std::vector<float> target_gimbal_effort_;
     std::deque<std::vector<float>> target_thrust_list_;
     std::vector<float> target_thrust_;
+    std::vector<float> thrust_scale_;
+    int thrust_fault_id_ = 0;
     int thrust_target_delay_steps_ = 0;
-    double thrust_scale_ = 0.0;
+    double thrust_scale_default_ = 0.0;
     double gimbal_kp_;
     double gimbal_kd_;
     bool gimbal_effort_ctrl_ = false;

@@ -39,6 +39,9 @@ if __name__=="__main__":
         start_pub = rospy.Publisher(ns + '/start', Empty, queue_size=1)
         takeoff_pub = rospy.Publisher(ns + '/takeoff', Empty, queue_size=1)
         force_landing_pub = rospy.Publisher(ns + '/force_landing', Empty, queue_size=1)
+        fault_pub = rospy.Publisher(ns + '/fault', Int8, queue_size=1)
+        brake_pub = rospy.Publisher(ns + '/brake', Empty, queue_size=1)
+        unbrake_pub = rospy.Publisher(ns + '/unbrake', Empty, queue_size=1)
         ctrl_mode_pub = rospy.Publisher(ns + '/ctrl_mode', Int8, queue_size=1)
         motion_start_pub = rospy.Publisher('task_start', Empty, queue_size=1)
 
@@ -46,6 +49,7 @@ if __name__=="__main__":
         #the way to write publisher in python
         comm=Int8()
         gain=UInt16()
+        fault=Int8()
         try:
                 while(True):
                         key = getKey()
@@ -80,6 +84,16 @@ if __name__=="__main__":
                         if key == 'p':
                                 comm.data = 0
                                 ctrl_mode_pub.publish(comm)
+                        # if key == 'b':
+                        #         brake_pub.publish(Empty())
+                        #         print("----- brake command sent -----")
+                        # if key == 'B':
+                        #         unbrake_pub.publish(Empty())
+                        #         print("----- unbrake command sent -----")
+                        # if key >= '0' and key <= '9':
+                        #         fault.data = int(key)
+                        #         fault_pub.publish(fault)
+                        #         print("----- fault command {} sent -----".format(fault.data))
                         if key == '\x03':
                                 break
                         rospy.sleep(0.001)

@@ -98,16 +98,17 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   XmlRpc::XmlRpcValue gimbal_default_xml, scales_xml;
   getParam<double>(rl_nh,"control_freq", control_hz_, 200.0);
   getParam<int>(rl_nh,"decimation", decimation_, 4);
+  getParam<bool>(rl_nh,"fault_injection", fault_injection_, false);
   getParam<bool>(rl_nh,"ideal_obs", ideal_obs_, false);
   getParam<std::string>(rl_nh,"ideal_obs_topic", odom_topic, "uav/cog/odom");
   getParam<int>(rl_nh,"ideal_delay", ideal_delay_, 4);  // 100Hz 
+  getParam<bool>(rl_nh,"fc2root_transform", fc2root_transform_, false);
   getParam<bool>(rl_nh,"rlagent_verbose", verbose_, false);
   getParam<bool>(rl_nh,"rlagent_debug", debug_, false);
   getParam<bool>(rl_nh,"rlagent_forward_info", forward_info_, false);
   getParam<int>(rl_nh,"gimbal_target_delay_steps", gimbal_target_delay_steps_, 0);
   getParam<int>(rl_nh,"gimbal_obs_delay_steps", gimbal_obs_delay_steps_, 0);
   getParam<bool>(rl_nh,"enable_thrust", enable_thrust_, false);
-  getParam<double>(rl_nh,"thrust_scale", thrust_scale_, 1.0);
   getParam<double>(rl_nh,"thrust_tau", thrust_tau_, 0.05);
   getParam<int>(rl_nh,"thrust_target_delay_steps", thrust_target_delay_steps_, 0);
   // getParam<bool>(rl_nh,"lock_thrust", lock_thrust_, false);
@@ -120,9 +121,9 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<double>(rl_nh,"goal_angle_P", goal_angle_P, 0.0);
   getParam<double>(rl_nh,"goal_angle_Y", goal_angle_Y, 0.0);
   getParam<double>(rl_nh,"thrust_default", thrust_default_, 0.0);
-  getParam<double>(rl_nh,"thrust_scale", thrust_scale_, 0.0);
-  if (thrust_scale_ > 1.0)
-    thrust_scale_ = 1.0;
+  getParam<double>(rl_nh,"thrust_scale", thrust_scale_default_, 0.0);
+  if (thrust_scale_default_ > 1.0)
+    thrust_scale_default_ = 1.0;
   getParam<XmlRpc::XmlRpcValue>(rl_nh,"gimbal_default", gimbal_default_xml, XmlRpc::XmlRpcValue());
   getParam<XmlRpc::XmlRpcValue>(rl_nh,"scales", scales_xml, XmlRpc::XmlRpcValue());
   getParam<int>(rl_nh,"gimbal_size", gimbal_size_, 4);
@@ -138,6 +139,21 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   std::cout << "Desired \n";
   std::cout << "Pos : " << desired_pose_.pose.position.x << ", " << desired_pose_.pose.position.y << ", " << desired_pose_.pose.position.z << "\n";
   std::cout << "Ori : " << desired_pose_.pose.orientation.x << ", " << desired_pose_.pose.orientation.y << ", " << desired_pose_.pose.orientation.z << ", " << desired_pose_.pose.orientation.w << "\n";
+
+
+  root2fc_pos_.setX(-0.0175);
+  root2fc_pos_.setY(-0.0015);
+  root2fc_pos_.setZ(0.06647);
+  root2fc_quat_ = tf::createQuaternionFromRPY(0.0, 0.0, 0.0);
+  geometry_msgs::Transform root_2fc_T;
+  root_2fc_T.translation.x = root2fc_pos_.x();
+  root_2fc_T.translation.y = root2fc_pos_.y();
+  root_2fc_T.translation.z = root2fc_pos_.z();
+  root_2fc_T.rotation.x = root2fc_quat_.x();
+  root_2fc_T.rotation.y = root2fc_quat_.y();
+  root_2fc_T.rotation.z = root2fc_quat_.z();
+  root_2fc_T.rotation.w = root2fc_quat_.w();
+  fc2root_T = inverseTransform(root_2fc_T);
 
   for (auto it = gimbal_default_xml.begin(); it != gimbal_default_xml.end(); ++it)
   {
@@ -181,8 +197,10 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   }
   target_gimbal_.resize(gimbal_size_);
   target_thrust_.resize(thrust_size_);
+  thrust_scale_.resize(thrust_size_);
   target_gimbal_.assign(gimbal_size_, 0.0);
   target_thrust_.assign(thrust_size_, 0.0);
+  thrust_scale_.assign(thrust_size_, 1.0);
   last_action_.resize(action_size_);
   gimbal_pos_.resize(gimbal_size_, 0.0);
   gimbal_vel_.resize(gimbal_size_, 0.0);
@@ -217,6 +235,9 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   goal_sub_   = nh_.subscribe("/desired_3D_pose", 1, &BeetlePoseRLAgent::goalCallback, this);
   gimbal_sub_ = nh_.subscribe("joint_states", 1, &BeetlePoseRLAgent::gimbalCallback, this);
   odom_sub_ = nh_.subscribe(odom_topic, 1, &BeetlePoseRLAgent::odomCallback, this);
+  brake_sub_ = nh_.subscribe("teleop_command/brake", 1, &BeetlePoseRLAgent::brakeCallback, this);
+  unbrake_sub_ = nh_.subscribe("teleop_command/unbrake", 1, &BeetlePoseRLAgent::unbrakeCallback, this);
+  fault_sub_ = nh_.subscribe("teleop_command/fault", 1, &BeetlePoseRLAgent::faultCallback, this);
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
   thrust_debug_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command_debug", 1);
   gimbal_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl", 1);
@@ -492,6 +513,27 @@ void BeetlePoseRLAgent::buildObservation()
   else
     body_pos = estimator_->getPos(Frame::BASELINK, estimate_mode_);
 
+  if (fc2root_transform_) {
+      // transform from fc to root
+      geometry_msgs::Transform body_T;
+      body_T.translation.x = body_pos.x();
+      body_T.translation.y = body_pos.y();
+      body_T.translation.z = body_pos.z();
+      body_T.rotation.x = body_quat.x();
+      body_T.rotation.y = body_quat.y();
+      body_T.rotation.z = body_quat.z();
+      body_T.rotation.w = body_quat.w();
+      geometry_msgs::Transform root_T = forwardTransform(body_T, fc2root_T);
+      body_pos.setX(root_T.translation.x);
+      body_pos.setY(root_T.translation.y);
+      body_pos.setZ(root_T.translation.z);
+      body_quat.setX(root_T.rotation.x);
+      body_quat.setY(root_T.rotation.y);
+      body_quat.setZ(root_T.rotation.z);
+      body_quat.setW(root_T.rotation.w);
+      body_quat.normalize();
+  }
+
   pos_body = body_pos;
   double body_roll, body_pitch, body_yaw;
   tf::Matrix3x3 body_rot_mat(body_quat);
@@ -602,6 +644,12 @@ void BeetlePoseRLAgent::buildObservation()
   temp_obs.insert(temp_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
   // last_action (8) 36
   temp_obs.insert(temp_obs.end(), last_action_.begin(), last_action_.end());
+  // rotor status (fault) (4) 40
+  if (fault_injection_) {
+    for (size_t i = 0; i < thrust_size_; ++i) {
+      temp_obs.push_back(thrust_scale_[i]);
+    }
+  }
   // verify obs36 length (should be 36)
   if (temp_obs.size() != obs_size_) {
     ROS_WARN("[RL-Agent] Observation size (%zu) does not match expected obs_size_ (%zu)", observation_.size(), obs_size_);
@@ -665,7 +713,7 @@ void BeetlePoseRLAgent::sendCmd()
         std::cout << "BAD target_thrust_ at i=" << i << std::endl;
         target_thrust_[i] = thrust_default_;
       }
-    thrust_cmd_.base_thrust[i] = target_thrust_[i] * thrust_scale_ * thrust_scale_;
+    thrust_cmd_.base_thrust[i] = target_thrust_[i] * thrust_scale_default_ * thrust_scale_[i];
   }
   gimbal_cmd_.header.stamp = ros::Time::now();
   if (enable_gimbal_){
@@ -741,6 +789,38 @@ void BeetlePoseRLAgent::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
   std::lock_guard<std::mutex> lock(data_mutex_);
   odom_msg_ = *msg;
   odom_catch_ = true;
+}
+
+void BeetlePoseRLAgent::brakeCallback(const std_msgs::Empty::ConstPtr& msg) {
+  enable_thrust_ = false;
+  ROS_INFO("Control disabled via brake topic.");
+}
+
+void BeetlePoseRLAgent::unbrakeCallback(const std_msgs::Empty::ConstPtr& msg) {
+  enable_thrust_ = true;
+  ROS_INFO("Control enabled via unbrake topic.");
+}
+
+void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
+  if (fault_injection_ == false) {
+    ROS_WARN("Fault injection is disabled. Ignoring fault message.");
+    return;
+  }
+  if (msg->data < 0 || msg->data > static_cast<int8_t>(thrust_size_)) {
+    ROS_WARN("Received invalid rotor fault index: %d", msg->data);
+    return;
+  }
+  thrust_fault_id_ = msg->data;
+  if (msg->data == 0) {
+    ROS_INFO("Recover all rotors to normal operation.");
+    for (size_t i = 0; i < thrust_size_; ++i) {
+      thrust_scale_[i] = 1.0;
+    }
+  }
+  else {
+    thrust_scale_[msg->data - 1] = 0.0;
+    ROS_WARN("Rotor %d fault detected via fault topic.", msg->data);
+  }
 }
 
   }  // namespace aerial_robot_control
