@@ -5,7 +5,7 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-18_22-46-06-20000.onnx # 3. (remove gravity, change scales) stable in nozero roll/pitch but osscilation in hovering 
 # policy-2025-12-19_21-00-13-39000.onnx # gravity curriculum
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-21_22-10-04-26000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2025-12-22_22-43-28-46000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   fault_injection: true
@@ -21,7 +21,7 @@ rlagent:
   enable_thrust: false
   thrust_scale: 1.0
   thrust_tau: 0.0
-  thrust_target_delay_steps: 1
+  thrust_target_delay_steps: 0
   enable_gimbal: false
   goal_pos_x: 0.0
   goal_pos_y: 0.0
