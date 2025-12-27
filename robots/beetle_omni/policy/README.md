@@ -1,4 +1,8 @@
 
+### Launch
+```bash
+roslaunch beetle_omni bringup_rl_omni.launch real_machine:=false simulation:=True headless:=False
+```
 
 ### Foxglove Data Visualization
 

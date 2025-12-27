@@ -100,6 +100,8 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<int>(rl_nh,"decimation", decimation_, 4);
   getParam<bool>(rl_nh,"fault_injection", fault_injection_, false);
   getParam<bool>(rl_nh,"ideal_obs", ideal_obs_, false);
+  getParam<bool>(rl_nh,"fault_obs", fault_obs_, false);
+  getParam<bool>(rl_nh,"fault_goal", fault_goal_, true);
   getParam<std::string>(rl_nh,"ideal_obs_topic", odom_topic, "uav/cog/odom");
   getParam<int>(rl_nh,"ideal_delay", ideal_delay_, 4);  // 100Hz 
   getParam<bool>(rl_nh,"fc2root_transform", fc2root_transform_, false);
@@ -645,7 +647,7 @@ void BeetlePoseRLAgent::buildObservation()
   // last_action (8) 36
   temp_obs.insert(temp_obs.end(), last_action_.begin(), last_action_.end());
   // rotor status (fault) (4) 40
-  if (fault_injection_) {
+  if (fault_obs_) {
     for (size_t i = 0; i < thrust_size_; ++i) {
       temp_obs.push_back(thrust_scale_[i]);
     }
@@ -819,6 +821,42 @@ void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
   }
   else {
     thrust_scale_[msg->data - 1] = 0.0;
+    if (fault_goal_) {
+      // 1. Keep current desired position (already done by copy)
+      geometry_msgs::PoseStamped fault_pose = desired_pose_;
+      
+      // 2. Extract current desired Yaw safely
+      tf::Quaternion current_goal_quat(
+          desired_pose_.pose.orientation.x,
+          desired_pose_.pose.orientation.y,
+          desired_pose_.pose.orientation.z,
+          desired_pose_.pose.orientation.w);
+      double goal_yaw = tf::getYaw(current_goal_quat);
+
+      // 3. Determine Z-axis orientation (Up or Down)
+      // Rotate the body Z-axis (0,0,1) into world frame to check direction
+      tf::Vector3 z_axis_world = tf::quatRotate(current_goal_quat, tf::Vector3(0, 0, 1));
+      
+      // If Z world component is negative, the drone is upside down (Roll should be PI)
+      double target_roll = (z_axis_world.z() >= 0.0) ? 0.0 : M_PI;
+
+      // 4. Create new orientation: 
+      // - Roll: 0 (Up) or PI (Down)
+      // - Pitch: 0 (Flat)
+      // - Yaw: Original Yaw
+      tf::Quaternion flat_quat;
+      flat_quat.setRPY(target_roll, 0.0, goal_yaw);
+      flat_quat.normalize();
+
+      // 5. Apply to fault_pose
+      fault_pose.pose.orientation.x = flat_quat.x();
+      fault_pose.pose.orientation.y = flat_quat.y();
+      fault_pose.pose.orientation.z = flat_quat.z();
+      fault_pose.pose.orientation.w = flat_quat.w();
+      
+      desired_pose_ = fault_pose;
+      ROS_INFO("Remove roll and pitch from goal due to rotor fault (keeping Yaw and Position).");
+    }
     ROS_WARN("Rotor %d fault detected via fault topic.", msg->data);
   }
 }

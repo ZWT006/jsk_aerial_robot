@@ -97,6 +97,8 @@ namespace aerial_robot_control
     size_t obs_size_;
     size_t action_size_;
     bool ideal_obs_ = false;
+    bool fault_obs_ = false;
+    bool fault_goal_ = true;
     int step_count_ = 0;
     int decimation_ = 4;
     bool verbose_ = false;

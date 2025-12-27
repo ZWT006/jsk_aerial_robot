@@ -8,8 +8,10 @@ rlagent:
   onnx_model_path: "policy/policy-2025-12-22_22-43-28-46000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
-  fault_injection: true
+  fault_injection: false
   ideal_obs: false
+  fault_obs: true
+  fault_goal: true  # degraded goal when fault injected
   ideal_obs_topic: "uav/cog/odom"
   ideal_delay: 0
   fc2root_transform: true

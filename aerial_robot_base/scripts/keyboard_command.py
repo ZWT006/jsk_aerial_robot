@@ -84,16 +84,16 @@ if __name__=="__main__":
                         if key == 'p':
                                 comm.data = 0
                                 ctrl_mode_pub.publish(comm)
-                        # if key == 'b':
-                        #         brake_pub.publish(Empty())
-                        #         print("----- brake command sent -----")
-                        # if key == 'B':
-                        #         unbrake_pub.publish(Empty())
-                        #         print("----- unbrake command sent -----")
-                        # if key >= '0' and key <= '9':
-                        #         fault.data = int(key)
-                        #         fault_pub.publish(fault)
-                        #         print("----- fault command {} sent -----".format(fault.data))
+                        if key == 'b':
+                                brake_pub.publish(Empty())
+                                print("----- brake command sent -----")
+                        if key == 'B':
+                                unbrake_pub.publish(Empty())
+                                print("----- unbrake command sent -----")
+                        if key >= '0' and key <= '9':
+                                fault.data = int(key)
+                                fault_pub.publish(fault)
+                                print("----- fault command {} sent -----".format(fault.data))
                         if key == '\x03':
                                 break
                         rospy.sleep(0.001)
