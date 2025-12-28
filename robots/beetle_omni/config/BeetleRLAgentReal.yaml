@@ -3,15 +3,19 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-12_10-32-54-10000.onnx # 1. deploy: current best in sim, z osscilation in real
 # policy-2025-12-16_22-57-33-20000.onnx # 2. add thrust cmd delay, more stable, z osscilation is less
 # policy-2025-12-18_22-46-06-20000.onnx # 3. (remove gravity, change scales) stable in nozero roll/pitch but osscilation in hovering 
-# policy-2025-12-19_21-00-13-39000.onnx # gravity curriculum
+# policy-2025-12-19_21-00-13-39000.onnx # 4. gravity curriculum
+# policy-2025-12-22_22-43-28-46000.onnx #
+# policy-2025-12-26_12-54-59-50000.onnx # emhanced normal flight
+# policy-2025-12-26_22-58-28-46000.onnx # fault tolerant
+
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-22_22-43-28-46000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2025-12-26_22-58-28-46000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   fault_injection: false
-  ideal_obs: false
   fault_obs: true
-  fault_goal: true  # degraded goal when fault injected
+  fault_goal: false  # degraded goal when fault injected
+  ideal_obs: false
   ideal_obs_topic: "uav/cog/odom"
   ideal_delay: 0
   fc2root_transform: true
@@ -24,7 +28,7 @@ rlagent:
   thrust_scale: 1.0
   thrust_tau: 0.0
   thrust_target_delay_steps: 0
-  enable_gimbal: false
+  enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 0.9

@@ -24,9 +24,9 @@ rlagent:
   control_freq: 400.0
   decimation: 2
   fault_injection: true
-  ideal_obs: false
   fault_obs: true
   fault_goal: false  # degraded goal when fault injected
+  ideal_obs: false
   # ideal_obs_topic: "uav/cog/odom"
   ideal_obs_topic: "uav/baselink/odom"
   ideal_delay: 0
