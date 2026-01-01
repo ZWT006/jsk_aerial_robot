@@ -1,5 +1,9 @@
 aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
-# roslaunch beetle_omni bringup_rl_omni.launch real_machine:=false simulation:=True headless:=False
+# 1 roslaunch beetle_omni bringup_rl_omni.launch real_machine:=false simulation:=True headless:=False
+
+# 2 aerial_robot_planning roscd python scripts/mpc_smach_node.py beetle1
+
+
 # policy2025-12-05_13-21-20.onnx
 # policy-2025-12-06_16-55-18-20000.onnx ideal obs
 # policy-2025-12-06_20-47-26-10000.onnx
@@ -19,13 +23,14 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-22_22-43-28-46000.onnx
 # policy-2025-12-26_22-58-28-46000.onnx # fault tolerant
 # policy-2025-12-26_12-54-59-50000.onnx # emhanced normal flight
+# policy-2025-12-31_23-33-56-48000.onnx # fault_obs: false
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-26_22-58-28-46000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2025-12-26_12-54-59-50000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   fault_injection: true
   ideal_obs: false
-  fault_obs: true
+  fault_obs: false
   fault_goal: false  # degraded goal when fault injected
   # ideal_obs_topic: "uav/cog/odom"
   ideal_obs_topic: "uav/baselink/odom"
