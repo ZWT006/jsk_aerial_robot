@@ -123,6 +123,7 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<double>(rl_nh,"goal_angle_P", goal_angle_P, 0.0);
   getParam<double>(rl_nh,"goal_angle_Y", goal_angle_Y, 0.0);
   getParam<double>(rl_nh,"thrust_default", thrust_default_, 0.0);
+  getParam<double>(rl_nh,"thrust_limit", thrust_limit_, 5.0);
   getParam<double>(rl_nh,"thrust_scale", thrust_scale_default_, 0.0);
   if (thrust_scale_default_ > 1.0)
     thrust_scale_default_ = 1.0;
@@ -716,6 +717,12 @@ void BeetlePoseRLAgent::sendCmd()
         target_thrust_[i] = thrust_default_;
       }
     thrust_cmd_.base_thrust[i] = target_thrust_[i] * thrust_scale_default_ * thrust_scale_[i];
+    if (thrust_cmd_.base_thrust[i] > thrust_limit_) {
+      thrust_cmd_.base_thrust[i] = thrust_limit_;
+    }
+    else if (thrust_cmd_.base_thrust[i] < 0.0) {
+      thrust_cmd_.base_thrust[i] = 0.0;
+    }
   }
   gimbal_cmd_.header.stamp = ros::Time::now();
   if (enable_gimbal_){

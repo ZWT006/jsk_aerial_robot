@@ -24,12 +24,13 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-26_22-58-28-46000.onnx # fault tolerant
 # policy-2025-12-26_12-54-59-50000.onnx # emhanced normal flight
 # policy-2025-12-31_23-33-56-48000.onnx # fault_obs: false
+# policy-2026-01-03_15-04-36-17000.onnx # fault obs: false, add pose delay
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-26_12-54-59-50000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-03_15-04-36-17000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   fault_injection: true
-  fault_obs: true
+  fault_obs: false
   fault_goal: false  # degraded goal when fault injected
   ideal_obs: false
   # ideal_obs_topic: "uav/cog/odom"
@@ -53,6 +54,7 @@ rlagent:
   goal_angle_P: 0.0
   goal_angle_Y: 0.0
   thrust_default: 7.0 # 6.0 before 3.
+  thrust_limit: 20.0
   gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
   # gimbal_kp: 0.285
   # gimbal_kd: 0.019

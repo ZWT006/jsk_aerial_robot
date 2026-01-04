@@ -36,6 +36,7 @@ rlagent:
   goal_angle_P: 0.0
   goal_angle_Y: 0.0
   thrust_default: 7.0 # 6.0 before 3.
+  thrust_limit: 20.0
   gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
   gimbal_kp: 0.344964875
   gimbal_kd: 0.0094725 # 

@@ -15,16 +15,17 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 # ==========================================
 WAYPOINTS = [
     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
-    [1.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Move X+
-    [1.0, 1.0, 1.5, 0.0, 0.0, 90.0],   # Move Y+, Up, Yaw 90
-    [0.0, 1.0, 1.5, 0.0, 0.0, 180.0],  # Move X-, Yaw 180
-    [0.0, 1.0, 1.0, 180.0, 0.0, 0.0],  # Move X-, Roll 180
-    [1.0, 0.0, 1.0, 0.0, 90.0, 0.0],  # Move X-, Pitch 180
+    [1.0, 1.0, 1.5, 0.0, 0.0, 45.0],    # Move X+
+    [-1.0, 1.0, 1.5, 90.0, 0.0, 135.0],   # Move Y+, Up, Yaw 90
+    [-1.0, -1.0, 1.5, 0.0, 0.0, 180.0],  # Move X-, Yaw 180
+    [1.0, -1.0, 1.5, 180.0, 0.0, 0.0],  # Move X-, Roll 180
+    [0.0, 0.0, 1.5, 0.0, 90.0, 0.0],  # Move X-, Pitch 180
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Return origin
     [0.0, 0.0, 0.5, 0.0, 0.0, 0.0],    # Return origin, Down
 ]
 
 # Time interval for auto mode (seconds)
-WAYPOINT_INTER = 2.0 
+WAYPOINT_INTER = 5.0 
 
 # ==========================================
 # Helper Functions
