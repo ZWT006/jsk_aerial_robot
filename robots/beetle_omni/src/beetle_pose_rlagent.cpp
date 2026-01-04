@@ -98,6 +98,9 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   XmlRpc::XmlRpcValue gimbal_default_xml, scales_xml;
   getParam<double>(rl_nh,"control_freq", control_hz_, 200.0);
   getParam<int>(rl_nh,"decimation", decimation_, 4);
+  getParam<bool>(rl_nh,"history_obs", history_obs_, false);
+  getParam<int>(rl_nh,"single_obs_size", single_obs_size_, 27);
+  getParam<int>(rl_nh,"history_length", history_length_, 4);
   getParam<bool>(rl_nh,"fault_injection", fault_injection_, false);
   getParam<bool>(rl_nh,"ideal_obs", ideal_obs_, false);
   getParam<bool>(rl_nh,"fault_obs", fault_obs_, false);
@@ -209,6 +212,12 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   gimbal_vel_.resize(gimbal_size_, 0.0);
   gimbal_pos_.assign(gimbal_size_, 0.0);
   gimbal_vel_.assign(gimbal_size_, 0.0);
+  if (history_obs_) {
+    history_observations_.resize(history_length_);
+    for (size_t i = 0; i < history_length_; ++i) {
+      history_observations_[i].resize(single_obs_size_, 0.0);
+    }
+  }
 
   target_gimbal_list_.clear();
   if (gimbal_target_delay_steps_ > 0) {
@@ -631,26 +640,53 @@ void BeetlePoseRLAgent::buildObservation()
   }
   std::vector<float>temp_obs;
   temp_obs.reserve(obs_size_);
-  // lin vel (3) 3
-  temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
-  // ang vel (3) 6
-  temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
-  // gravity (3) 9
-  // temp_obs.push_back(gravity_b.x()); temp_obs.push_back(gravity_b.y()); temp_obs.push_back(gravity_b.z());
-  // goal pos (3) 12
-  temp_obs.push_back(goal_pos.x()); temp_obs.push_back(goal_pos.y()); temp_obs.push_back(goal_pos.z());
-  // gimbal dof (4) 16
-  for (size_t i = 0; i < gimbal_size_; ++i) temp_obs.push_back(gimbal_pos_[i]);
-  // root_rot_vec (6) 22
-  temp_obs.insert(temp_obs.end(), root_rot_vec.begin(), root_rot_vec.end());
-  // goal_rot_vec (6) 28
-  temp_obs.insert(temp_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
-  // last_action (8) 36
-  temp_obs.insert(temp_obs.end(), last_action_.begin(), last_action_.end());
-  // rotor status (fault) (4) 40
-  if (fault_obs_) {
-    for (size_t i = 0; i < thrust_size_; ++i) {
-      temp_obs.push_back(thrust_scale_[i]);
+  if (history_obs_) {
+    std::vector<float> current_obs;
+    current_obs.reserve(single_obs_size_);
+    // goal pos (3) 3
+    current_obs.push_back(goal_pos.x()); current_obs.push_back(goal_pos.y()); current_obs.push_back(goal_pos.z());
+    // gimbal pos (4) 7
+    for (size_t i = 0; i < gimbal_size_; ++i) current_obs.push_back(gimbal_pos_[i]);
+    // root_rot_vec (6) 13
+    current_obs.insert(current_obs.end(), root_rot_vec.begin(), root_rot_vec.end());
+    // goal_rot_vec (6) 19
+    current_obs.insert(current_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
+    // last_action (8) 27
+    current_obs.insert(current_obs.end(), last_action_.begin(), last_action_.end());
+    for (size_t k = history_length_ - 1; k > 0; --k) {
+      history_observations_[k] = history_observations_[k - 1];
+    }
+    // new obs 0
+    history_observations_[0] = current_obs;
+    temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
+    // ang vel (3) 6
+    temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
+    for (size_t k = 0; k < history_length_; ++k) {
+      temp_obs.insert(temp_obs.end(), history_observations_[k].begin(), history_observations_[k].end());
+    }
+  }
+  else {
+    // lin vel (3) 3
+    temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
+    // ang vel (3) 6
+    temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
+    // gravity (3) 9
+    // temp_obs.push_back(gravity_b.x()); temp_obs.push_back(gravity_b.y()); temp_obs.push_back(gravity_b.z());
+    // goal pos (3) 12
+    temp_obs.push_back(goal_pos.x()); temp_obs.push_back(goal_pos.y()); temp_obs.push_back(goal_pos.z());
+    // gimbal dof (4) 16
+    for (size_t i = 0; i < gimbal_size_; ++i) temp_obs.push_back(gimbal_pos_[i]);
+    // root_rot_vec (6) 22
+    temp_obs.insert(temp_obs.end(), root_rot_vec.begin(), root_rot_vec.end());
+    // goal_rot_vec (6) 28
+    temp_obs.insert(temp_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
+    // last_action (8) 36
+    temp_obs.insert(temp_obs.end(), last_action_.begin(), last_action_.end());
+    // rotor status (fault) (4) 40
+    if (fault_obs_) {
+      for (size_t i = 0; i < thrust_size_; ++i) {
+        temp_obs.push_back(thrust_scale_[i]);
+      }
     }
   }
   // verify obs36 length (should be 36)

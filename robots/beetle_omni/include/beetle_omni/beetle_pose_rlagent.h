@@ -91,11 +91,15 @@ namespace aerial_robot_control
 
     // ----------- general parameters -----------
     std::vector<float> observation_;
+    std::vector<std::vector<float>> history_observations_;
     std::vector<float> action_;
     std::vector<float> last_action_; // will resize to action_size_
     double control_hz_;
     size_t obs_size_;
     size_t action_size_;
+    int single_obs_size_;
+    int history_length_;
+    bool history_obs_ = false;
     bool ideal_obs_ = false;
     bool fault_obs_ = false;
     bool fault_goal_ = true;

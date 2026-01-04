@@ -25,10 +25,14 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-26_12-54-59-50000.onnx # emhanced normal flight
 # policy-2025-12-31_23-33-56-48000.onnx # fault_obs: false
 # policy-2026-01-03_15-04-36-17000.onnx # fault obs: false, add pose delay
+# policy-2026-01-04_20-19-20-2000.onnx # history obs
 rlagent:
   onnx_model_path: "policy/policy-2026-01-03_15-04-36-17000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
+  history_obs: false
+  single_obs_size: 27
+  history_length: 4
   fault_injection: true
   fault_obs: false
   fault_goal: false  # degraded goal when fault injected
