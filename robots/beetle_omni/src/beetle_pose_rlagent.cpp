@@ -658,18 +658,19 @@ void BeetlePoseRLAgent::buildObservation()
     }
     // new obs 0
     history_observations_[0] = current_obs;
-    temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
-    // ang vel (3) 6
-    temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
     for (size_t k = 0; k < history_length_; ++k) {
       temp_obs.insert(temp_obs.end(), history_observations_[k].begin(), history_observations_[k].end());
     }
-  }
-  else {
-    // lin vel (3) 3
     temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
     // ang vel (3) 6
     temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
+    if (fault_obs_) {
+      for (size_t i = 0; i < thrust_size_; ++i) {
+        temp_obs.push_back(thrust_scale_[i]);
+      }
+    }
+  }
+  else {
     // gravity (3) 9
     // temp_obs.push_back(gravity_b.x()); temp_obs.push_back(gravity_b.y()); temp_obs.push_back(gravity_b.z());
     // goal pos (3) 12
@@ -682,6 +683,10 @@ void BeetlePoseRLAgent::buildObservation()
     temp_obs.insert(temp_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
     // last_action (8) 36
     temp_obs.insert(temp_obs.end(), last_action_.begin(), last_action_.end());
+    // lin vel (3) 3
+    temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
+    // ang vel (3) 6
+    temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
     // rotor status (fault) (4) 40
     if (fault_obs_) {
       for (size_t i = 0; i < thrust_size_; ++i) {
@@ -863,6 +868,9 @@ void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
     }
   }
   else {
+    for (size_t i = 0; i < thrust_size_; ++i) {
+      thrust_scale_[i] = 1.0;
+    }
     thrust_scale_[msg->data - 1] = 0.0;
     if (fault_goal_) {
       // 1. Keep current desired position (already done by copy)

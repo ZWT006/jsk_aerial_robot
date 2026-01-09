@@ -28,18 +28,21 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-04_20-19-20-2000.onnx # history obs
 # policy-2026-01-04_14-47-50-18000.onnx
 # policy-2026-01-05_15-27-36-24000.onnx # bad
-# policy-2026-01-06_13-52-36-18000.onnx
+# policy-2026-01-06_13-52-36-18000.onnx # maybe deploy
 # policy-2026-01-06_13-43-33-18000.onnx # pose history
 # policy-2026-01-06_13-24-08-18000.onnx # not good
+# policy-2026-01-08_14-21-53-12000.onnx # (basic) looks nice, deploy, obcilation in vertical z
+# policy-2026-01-08_14-33-57-12000.onnx # (pose history) garbage!
+# policy-2026-01-08_14-37-39-12000.onnx # (basic with fault) maybe deploy
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-06_13-52-36-18000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-08_14-37-39-12000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
   single_obs_size: 27
   history_length: 4
   fault_injection: true
-  fault_obs: false
+  fault_obs: true
   fault_goal: false  # degraded goal when fault injected
   ideal_obs: false
   # ideal_obs_topic: "uav/cog/odom"
