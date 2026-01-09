@@ -7,9 +7,11 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2025-12-22_22-43-28-46000.onnx #
 # policy-2025-12-26_12-54-59-50000.onnx # emhanced normal flight
 # policy-2025-12-26_22-58-28-46000.onnx # fault tolerant
+# policy-2026-01-06_13-52-36-18000.onnx
+# New Observation Sequence:
 
 rlagent:
-  onnx_model_path: "policy/policy-2025-12-26_22-58-28-46000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-06_13-52-36-18000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
