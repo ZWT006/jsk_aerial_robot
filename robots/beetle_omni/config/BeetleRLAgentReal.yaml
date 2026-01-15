@@ -13,16 +13,20 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-08_14-21-53-12000.onnx # (basic) looks nice, deploy, obcilation in vertical z
 # policy-2026-01-08_14-37-39-12000.onnx # (basic with fault) maybe deployS
 
+# policy-2026-01-09_20-11-41-20000.onnx # (hovering) benchmark 
+# policy-2026-01-09_21-07-56-17000.onnx # basic based on benchmark
+# New velocity reward
+# policy-2026-01-11_18-11-25-16000.onnx # (slow)
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-06_13-52-36-18000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
   single_obs_size: 27
   history_length: 4
   fault_injection: false
-  fault_obs: true
+  fault_obs: false
   fault_goal: false  # degraded goal when fault injected
   ideal_obs: false
   ideal_obs_topic: "uav/cog/odom"
@@ -33,7 +37,7 @@ rlagent:
   rlagent_forward_info: true
   gimbal_target_delay_steps: 0
   gimbal_obs_delay_steps: 0
-  enable_thrust: false
+  enable_thrust: true
   thrust_scale: 1.0
   thrust_tau: 0.0
   thrust_target_delay_steps: 0
