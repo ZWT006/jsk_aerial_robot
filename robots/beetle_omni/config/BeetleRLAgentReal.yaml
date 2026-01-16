@@ -1,4 +1,11 @@
 aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
+########################################################################
+# Trajectory Tracking initial pose:
+python scripts/rl/pub_desired_pose.py 0.0 0.0 0.8 -3.0827165 -1.0206008 224.4510401
+
+
+
+
 # policy-2025-12-06_16-55-18-20000.onnx # ideal obs
 # policy-2025-12-12_10-32-54-10000.onnx # 1. deploy: current best in sim, z osscilation in real
 # policy-2025-12-16_22-57-33-20000.onnx # 2. add thrust cmd delay, more stable, z osscilation is less

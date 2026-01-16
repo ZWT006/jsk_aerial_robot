@@ -85,7 +85,7 @@ def generate_trajectory_csv(
 
 
 if __name__ == "__main__":
-    T = 10.0     # total duration [s]
+    T = 20.0     # total duration [s]
     dt = 0.01    # time step [s]
 
     # Resolve path relative to beetle_omni package
