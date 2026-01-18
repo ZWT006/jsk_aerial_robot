@@ -59,7 +59,7 @@ def read_csv_trajectory(file_path):
 def main():
     parser = argparse.ArgumentParser(description="Publish trajectory from CSV relative to package.")
     # Default looks in 'config' folder of the package
-    parser.add_argument("--file", type=str, default="data/lemniscate_traj_default.csv", 
+    parser.add_argument("--file", type=str, default="data/lemniscate_traj_3d.csv", 
                         help="Relative path to CSV file from package root (e.g., config/traj.csv)")
     parser.add_argument("--package", type=str, default="beetle_omni", 
                         help="ROS package name to locate file in")

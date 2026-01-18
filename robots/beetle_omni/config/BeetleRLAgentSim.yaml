@@ -38,7 +38,7 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-09_20-11-41-20000.onnx # (benchmark) stable in hovering test
 # policy-2026-01-15_16-37-50-10000.onnx # try to replicate the benchmark result
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-15_16-37-50-10000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false

@@ -259,6 +259,109 @@ class SetPointTraj(BaseTraj):
 
         return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
 
+class SetWaypointsTraj(BaseTraj):
+    def __init__(self, loop_num) -> None:
+        super().__init__(loop_num)
+        self.waypoints = [
+        # # Normal Waypoints
+            [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
+            [1.0, 1.0, 1.5, 0.0, 45.0, 90.0],    # Move X+
+            [-1.0, 1.0, 1.5, 0.0, 45.0, 90.0],   # Move Y+, Up, Yaw 90
+            [-1.0, -1.0, 1.5, 45.0, 0.0, 225.0],  # Move X-, Yaw 180
+            [1.0, -1.0, 1.5, 45.0, 0.0, 315.0],  # Move X-, Roll 180
+            [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+            [0.0, 0.0, 0.5, 0.0, 0.0, 0.0],    # Return origin, Down
+        ]
+
+        # # Extended
+        #     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
+        #     [1.0, 1.0, 1.5, 0.0, 45.0, 90.0],    # Move X+
+        #     [-1.0, 1.0, 1.5, 0.0, 90.0, 135.0],   # Move Y+, Up, Yaw 90
+        #     [-1.0, -1.0, 1.5, 45.0, 0.0, 225.0],  # Move X-, Yaw 180
+        #     [1.0, -1.0, 1.5, 45.0, 0.0, 315.0],  # Move X-, Roll 180
+        #     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+        #     [0.0, 0.0, 0.5, 0.0, 0.0, 0.0],    # Return origin, Down
+        # ]
+
+        # # Challenge Waypoints
+        #     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
+        #     [1.0, 1.0, 1.5, 0.0, 45.0, 90.0],    # Move X+
+        #     [-1.0, 1.0, 1.5, 0.0, 90.0, 135.0],   # Move Y+, Up, Yaw 90
+        #     # [0.0, 0.0, 1.5, 0.0, 0.0, 0.0],
+        #     [-1.0, -1.0, 1.5, 180.0, 0.0, 0.0],  # Move X-, Yaw 180
+        #     [1.0, -1.0, 1.5, 0.0, 45.0, 270.0],  # Move X-, Roll 180
+        #     # [1.0, -1.0, 1.5, 0.0, 180.0, 225.0], # Alternative
+        #     [0.0, 0.0, 1.5, 180.0, 0.0, 90.0],  # Move X-, Pitch 180
+        #     [0.0, 0.0, 1.5, 0.0, 0.0, 0.0],    # Return origin
+        #     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
+        # ]
+        self.pos = np.array([0.0, 0.0, 0.7])
+        self.vel = np.array([0.0, 0.0, 0.0])
+        self.acc = np.array([0.0, 0.0, 0.0])
+
+        self.att = np.array([0.0, 0.0, 0.0])
+        self.att_rate = np.array([0.0, 0.0, 0.0])
+        self.att_acc = np.array([0.0, 0.0, 0.0])
+    
+        self.t_converge = 8.0
+        self.n_wp = len(self.waypoints)
+        self.T = len(self.waypoints) * self.t_converge
+
+    def _idx(self, t: float) -> int:
+        if t < 0.0:
+            return 0
+        idx = int(t // self.t_converge)
+        if idx >= self.n_wp:
+            idx = self.n_wp - 1
+        return idx
+
+    def get_3d_pt(self, t: float) -> Tuple[float, float, float, float, float, float, float, float, float]:
+        x, y, z = self.pos
+        vx, vy, vz = self.vel
+        ax, ay, az = self.acc
+
+        if self.loop_num != np.inf:
+            total_T = self.T * max(1, int(self.loop_num))
+            if total_T > 0 and t >= total_T:
+                # return final waypoint when finished
+                idx = self.n_wp - 1
+            else:
+                if self.loop_num > 1 and self.T > 0:
+                    t = t % self.T
+                idx = self._idx(t)
+        else:
+            idx = self._idx(t)
+        wp = self.waypoints[idx]
+        x, y, z = float(wp[0]), float(wp[1]), float(wp[2])
+
+        return x, y, z, vx, vy, vz, ax, ay, az
+
+    def get_3d_orientation(
+        self, t: float
+    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+        roll, pitch, yaw = self.att
+        roll_rate, pitch_rate, yaw_rate = self.att_rate
+        roll_acc, pitch_acc, yaw_acc = self.att_acc
+
+        if self.loop_num != np.inf:
+            total_T = self.T * max(1, int(self.loop_num))
+            if total_T > 0 and t >= total_T:
+                idx = self.n_wp - 1
+            else:
+                if self.loop_num > 1 and self.T > 0:
+                    t = t % self.T
+                idx = self._idx(t)
+        else:
+            idx = self._idx(t)
+        wp = self.waypoints[idx]
+        roll_deg, pitch_deg, yaw_deg = float(wp[3]), float(wp[4]), float(wp[5])
+        # convert degrees to radians and get quaternion (qx,qy,qz,qw)
+        qx, qy, qz, qw = tf.transformations.quaternion_from_euler(
+            np.deg2rad(roll_deg), np.deg2rad(pitch_deg), np.deg2rad(yaw_deg)
+        )
+
+        return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+
 
 class PitchRotationTraj(BaseTraj):
     def __init__(self, loop_num) -> None:
