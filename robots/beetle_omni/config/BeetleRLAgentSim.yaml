@@ -35,10 +35,36 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-08_14-33-57-12000.onnx # (pose history) garbage!
 # policy-2026-01-08_14-37-39-12000.onnx # (basic with fault) maybe deploy
 
-# policy-2026-01-09_20-11-41-20000.onnx # (benchmark) stable in hovering test
-# policy-2026-01-15_16-37-50-10000.onnx # try to replicate the benchmark result
+# policy-2026-01-09_14-56-22-18000.onnx # basic
+# policy-2026-01-09_15-24-01-18000.onnx # pose history
+# New Training Reward
+# policy-2026-01-09_20-11-41-20000.onnx # (hovering) benchmark basic
+# policy-2026-01-09_21-07-56-17000.onnx # (hovering, roll=45 gimbal oscilation)basic based on bemchmark
+# policy-2026-01-10_14-56-54-23000.onnx # (oscillation) basic with large gimbbal align reward
+# policy-2026-01-11_15-15-13-19000.onnx # basic with fault tolerant
+# New velocity reward
+# policy-2026-01-11_18-11-25-16000.onnx # (looks nice, slow lin_vel, but maybe too slow ang_vel)basic
+# policy-2026-01-11_23-07-30-32000.onnx # (hovering) basic with fault tolerant
+# policy-2026-01-12_11-23-03-10000.onnx # (hovering, too fast) basic, vel 0.1
+# policy-2026-01-12_15-57-02-15000.onnx # (hovering, Roll 45 is unstable) resume, vel 0.3, gimbal vibration 5e-5
+
+# policy-2026-01-12_17-20-27-18000.onnx # (small gimbal oscillation, cannot large tilt)
+# policy-2026-01-13_11-28-37-18000.onnx # (cannot large tilt)
+# policy-2026-01-13_22-34-50-24000.onnx # (cannot large tilt)
+# policy-2026-01-15_10-20-10-17000.onnx #
+
+# policy-2026-01-16_11-07-06-21000.onnx
+# policy-2026-01-15_18-05-16-20000.onnx # basic for benchmark
+
+# policy-2026-01-18_19-46-02-32000.onnx # base
+# benchmark => different scheme
+# policy-2026-01-18_14-58-28-20000.onnx # change vel reward
+# policy-2026-01-18_15-11-36-20000.onnx # add align gimbal (danger tilt !)
+# policy-2026-01-18_15-17-44-20000.onnx # add init vel
+# policy-2026-01-18_15-33-42-20000.onnx # thrust power reward 1e-5 => 5e-5
+
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-15_16-37-50-10000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-19_11-21-32-9000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
@@ -75,6 +101,7 @@ rlagent:
   # gimbal_kd: 0.019
   gimbal_kp: 0.344964875
   gimbal_kd: 0.0094725 # 
+  gimbal_limit: 3.5 # rad
   gimbal_effort_ctrl: true
   gimbal_size: 4
   thrust_size: 4

@@ -2,6 +2,7 @@ import numpy as np
 import csv
 import os
 import rospkg
+import tf.transformations as tf_trans
 from typing import Tuple
 
 
@@ -17,6 +18,33 @@ class LemniscateTraj(BaseTraj):
         self.z_range = 0.3
         self.T = 20.0
         self.omega = 2 * np.pi / self.T
+        # orientation amplitude for roll/pitch modulation
+        self.a_orientation = 0.2
+
+    def get_3d_orientation(
+        self, t: float
+    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+        """
+        Return: qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+        """
+        t = t + self.T * 1 / 4
+
+        roll = -2 * self.a_orientation * np.sin(2 * self.omega * t) / 2
+        pitch = self.a_orientation * np.cos(self.omega * t)
+        yaw = np.pi / 2 * np.sin(self.omega * t + np.pi) + np.pi / 2
+
+        # tf_trans.quaternion_from_euler returns (x, y, z, w)
+        qx, qy, qz, qw = tf_trans.quaternion_from_euler(roll, pitch, yaw)
+
+        roll_rate = -2 * 2 * self.a_orientation * self.omega * np.cos(2 * self.omega * t) / 2
+        pitch_rate = -self.a_orientation * self.omega * np.sin(self.omega * t)
+        yaw_rate = np.pi / 2 * self.omega * np.cos(self.omega * t + np.pi / 2)
+
+        roll_acc = -2 * -4 * self.a_orientation * self.omega**2 * np.sin(2 * self.omega * t) / 2
+        pitch_acc = -self.a_orientation * self.omega**2 * np.cos(self.omega * t)
+        yaw_acc = -np.pi / 2 * self.omega**2 * np.sin(self.omega * t + np.pi / 2)
+
+        return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
 
     def get_3d_pt(
         self, t: float
@@ -62,16 +90,17 @@ def generate_trajectory_csv(
 
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["t", "x", "y", "z", "qw", "qx", "qy", "qz"])
+        # Only save position and orientation quaternion in the order: x,y,z,qw,qx,qy,qz
+        writer.writerow(["x", "y", "z", "qw", "qx", "qy", "qz"])
 
         for t in time_seq:
             x, y, z, vx, vy, vz, _, _, _ = traj.get_3d_pt(t)
 
-            yaw = np.arctan2(vy, vx)
-            qw, qx, qy, qz = yaw_to_quaternion(yaw)
+            # compute full 3D orientation quaternion from roll/pitch/yaw schedule
+            qw, qx, qy, qz, _, _, _, _, _, _ = traj.get_3d_orientation(t)
 
+            # write only x,y,z,qw,qx,qy,qz
             writer.writerow([
-                # round(t, 6),
                 x,
                 y,
                 z,

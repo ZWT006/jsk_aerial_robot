@@ -1,7 +1,7 @@
 aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 ########################################################################
 # Trajectory Tracking initial pose:
-# python scripts/rl/pub_desired_pose.py 0.0 0.0 0.8 -3.0827165 -1.0206008 224.4510401
+# python scripts/rl/pub_desired_pose.py 0.0 0.0 0.7 0 0 0 
 
 
 
