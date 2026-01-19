@@ -1,7 +1,7 @@
 aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 ########################################################################
 # Trajectory Tracking initial pose:
-python scripts/rl/pub_desired_pose.py 0.0 0.0 0.8 -3.0827165 -1.0206008 224.4510401
+# python scripts/rl/pub_desired_pose.py 0.0 0.0 0.8 -3.0827165 -1.0206008 224.4510401
 
 
 
@@ -20,13 +20,16 @@ python scripts/rl/pub_desired_pose.py 0.0 0.0 0.8 -3.0827165 -1.0206008 224.4510
 # policy-2026-01-08_14-21-53-12000.onnx # (basic) looks nice, deploy, obcilation in vertical z
 # policy-2026-01-08_14-37-39-12000.onnx # (basic with fault) maybe deployS
 
-# policy-2026-01-09_20-11-41-20000.onnx # (hovering) benchmark 
+# policy-2026-01-09_20-11-41-20000.onnx # (hovering) benchmark, can be used to test platform
 # policy-2026-01-09_21-07-56-17000.onnx # basic based on benchmark
 # New velocity reward
 # policy-2026-01-11_18-11-25-16000.onnx # (slow)
 
+# policy-2026-01-15_18-05-16-20000.onnx # basic task for benchmark
+# policy-2026-01-16_11-07-06-21000.onnx # verybad
+
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-16_11-07-06-21000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
