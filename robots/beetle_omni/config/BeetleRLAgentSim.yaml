@@ -63,8 +63,22 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-18_15-17-44-20000.onnx # add init vel
 # policy-2026-01-18_15-33-42-20000.onnx # thrust power reward 1e-5 => 5e-5
 
+
+# 
+# policy-2026-01-19_11-21-32-12000.onnx # 
+# policy-2026-01-19_16-57-26-20000.onnx # change reset gimbal
+# policy-2026-01-19_17-15-02-20000.onnx # 1) uneven reward scale 1e-5 => 5e-5; 2) uneven refer abs => square(square); 3) align axis step => square
+# policy-2026-01-19_20-35-45-18000.onnx # remove, change thrust uneven
+# policy-2026-01-20_10-56-37-20000.onnx # hovering, large roll danger
+# policy-2026-01-20_18-43-13-20000.onnx # hovering, large roll danger
+# policy-2026-01-20_18-51-28-20000.onnx # hovering, roll45?
+# policy-2026-01-20_22-37-31-20000.onnx # want to try deploy
+# policy-2026-01-20_22-37-31-26000.onnx
+# policy-2026-01-20_22-37-31-32000.onnx
+
+
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-19_11-21-32-9000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
