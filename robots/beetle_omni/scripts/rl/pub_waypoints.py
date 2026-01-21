@@ -53,7 +53,7 @@ WAYPOINTS = [
 # ]
 
 # Time interval for auto mode (seconds)
-WAYPOINT_INTER = 5.0 
+WAYPOINT_INTER = 8.0 
 
 # ==========================================
 # Helper Functions
