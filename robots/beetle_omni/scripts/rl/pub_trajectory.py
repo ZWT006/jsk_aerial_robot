@@ -64,7 +64,7 @@ def main():
     parser.add_argument("--package", type=str, default="beetle_omni", 
                         help="ROS package name to locate file in")
     parser.add_argument("--dt", type=float, default=0.01, help="Time step between points (seconds)")
-    parser.add_argument("--loop", action="store_true", help="Loop the trajectory")
+    parser.add_argument("--loop", type=int, default=1, help="Number of loops to run (default: 1)")
     args = parser.parse_args()
 
     rospy.init_node("trajectory_publisher", anonymous=True)
@@ -94,8 +94,9 @@ def main():
     # Wait a bit for connections
     rospy.sleep(1.0)
 
+    loop_count = 0
     try:
-        while not rospy.is_shutdown():
+        while not rospy.is_shutdown() and loop_count < args.loop:
             for i, point in enumerate(trajectory):
                 if rospy.is_shutdown():
                     break
@@ -121,11 +122,11 @@ def main():
 
                 rate.sleep()
 
-            if not args.loop:
-                print("Trajectory finished.")
-                break
+            loop_count += 1
+            if loop_count < args.loop:
+                print(f"Looping trajectory... ({loop_count}/{args.loop})")
             else:
-                print("Looping trajectory...")
+                print("Trajectory finished.")
     except Exception as e:
         print(f"Error: {e}")
 
