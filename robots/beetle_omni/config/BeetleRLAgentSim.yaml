@@ -76,9 +76,15 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-20_22-37-31-26000.onnx
 # policy-2026-01-20_22-37-31-32000.onnx
 
+# policy-2026-01-22_22-08-43-20000.onnx: 只是添加了一些 log, 并改了gimbal_acc的计算，原理上不影响: But looks very good in sim!
+# policy-2026-01-22_22-20-21-20000.onnx: (seems no difference, but cannot flip)remove align zaxis
+# policy-2026-01-22_22-28-02-20000.onnx: (no flip, seems large gimbal oscillation)target pose tilt range 0.55 pi
+# policy-2026-01-23_23-01-46-20000.onnx: static stable reset with initial vel
+# policy-2026-01-23_23-01-46-40000.onnx: static stable reset with initial vel
+# policy-2026-01-23_20-34-47-20000.onnx: (looks nice)reset with reference, based on raw benchmark
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-23_16-37-59-12000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
