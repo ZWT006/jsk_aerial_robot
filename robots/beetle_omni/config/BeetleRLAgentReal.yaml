@@ -44,6 +44,9 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-22_22-08-43-20000.onnx; 19000, 18000, 16000
 # policy-2026-01-24_22-40-44-20000.onnx; 18000, 16000, try
 # policy-2026-01-24_22-47-24-20000.onnx; 18000, 16000, try
+# policy-2026-01-24_22-59-35-20000.onnx; cannot flip
+# policy-2026-01-24_23-16-56-20000.onnx; cannot flip, danger
+# policy-2026-01-24_23-16-56-40000.onnx; give up
 
 rlagent:
   onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
@@ -71,8 +74,8 @@ rlagent:
   enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
-  goal_pos_z: 0.9
-  goal_angle_R: 0.4
+  goal_pos_z: 0.8
+  goal_angle_R: 0.0
   goal_angle_P: 0.0
   goal_angle_Y: 0.0
   thrust_default: 7.0 # 6.0 before 3.
