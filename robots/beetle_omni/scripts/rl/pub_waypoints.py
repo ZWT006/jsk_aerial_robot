@@ -23,12 +23,20 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 # ]
 
 # Vertical Flip Test Waypoints
+# WAYPOINTS = [
+#     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
+#     [0.0, 0.0, 1.2, 90.0, 0.0, 0.0],    # Move X+
+#     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+#     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
+# ]
+
+# 45 Roll Test Waypoints
 WAYPOINTS = [
-    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
-    [0.0, 0.0, 1.2, 90.0, 0.0, 0.0],    # Move X+
-    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+    [0.0, 0.0, 0.7, 0.0, 0.0, 0.0],    # Hover at 1m
+    [0.8, 0.0, 0.7, -45.0, 0.0, 0.0],    # Hover at 1m
     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
 ]
+
 ######################################################################
 # want to show large tilt (back)
 # WAYPOINTS = [

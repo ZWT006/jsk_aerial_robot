@@ -49,7 +49,7 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-24_23-16-56-40000.onnx; give up
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-22_22-08-43-16000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
@@ -74,7 +74,7 @@ rlagent:
   enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
-  goal_pos_z: 0.8
+  goal_pos_z: 0.7
   goal_angle_R: 0.0
   goal_angle_P: 0.0
   goal_angle_Y: 0.0
