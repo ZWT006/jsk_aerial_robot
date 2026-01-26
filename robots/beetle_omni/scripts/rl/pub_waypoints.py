@@ -139,6 +139,7 @@ def main():
     parser = argparse.ArgumentParser(description="Publish waypoints sequentially.")
     parser.add_argument("--mode", type=str, default="manual", choices=["manual", "auto"],
                         help="Mode: 'manual' (press N) or 'auto' (timer)")
+    parser.add_argument("--loop", type=int, default=1, help="Number of loops to run in auto mode (default: 1)")
     args = parser.parse_args()
 
     rospy.init_node("waypoint_sequencer", anonymous=True)
@@ -150,6 +151,7 @@ def main():
     current_idx = 0
     total_wp = len(WAYPOINTS)
     last_pub_time = rospy.Time.now()
+    loop_count = 0 # Initialize loop counter
 
     print("------------------------------------------------")
     print(f"Loaded {total_wp} waypoints.")
@@ -174,12 +176,18 @@ def main():
 
             # Logic 1: Auto interval
             if args.mode == "auto":
-                if current_idx < total_wp:
-                    if (rospy.Time.now() - last_pub_time).to_sec() > WAYPOINT_INTER:
+                if (rospy.Time.now() - last_pub_time).to_sec() > WAYPOINT_INTER:
+                    if current_idx < total_wp:
                         should_publish = True
-                elif current_idx >= total_wp:
-                    # In auto mode, just pass after finishing to avoid spamming
-                    pass 
+                    elif loop_count < args.loop - 1:
+                        # Reset for next loop
+                        current_idx = 0
+                        loop_count += 1
+                        print(f"--- Starting loop {loop_count + 1}/{args.loop} ---")
+                        should_publish = True
+                    else:
+                        # Finished all loops
+                        pass 
 
             # Logic 2: Key 'N' trigger
             if key == 'N':
