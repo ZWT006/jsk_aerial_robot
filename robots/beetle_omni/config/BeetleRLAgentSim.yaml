@@ -91,8 +91,10 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-24_23-16-56-20000.onnx; cannot flip, danger
 # policy-2026-01-24_23-16-56-40000.onnx; give up
 
+# policy-2026-01-23_20-34-47-18000.onnx
+
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-22_22-08-43-17000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-26_13-32-51-13000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
@@ -111,7 +113,7 @@ rlagent:
   rlagent_forward_info: true
   gimbal_target_delay_steps: 0
   gimbal_obs_delay_steps: 0
-  enable_thrust: false
+  enable_thrust: true
   thrust_scale: 1.0
   thrust_tau: 0.0 # 0.0342
   thrust_target_delay_steps: 1
