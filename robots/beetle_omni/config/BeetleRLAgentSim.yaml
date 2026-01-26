@@ -92,9 +92,10 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-24_23-16-56-40000.onnx; give up
 
 # policy-2026-01-23_20-34-47-18000.onnx
+# policy-2026-01-23_20-34-47-20000.onnx
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-26_13-32-51-13000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-23_20-34-47-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
