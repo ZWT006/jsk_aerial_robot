@@ -18,33 +18,20 @@ class LemniscateTraj(BaseTraj):
         self.z_range = 0.3
         self.T = 20.0
         self.omega = 2 * np.pi / self.T
-        # orientation amplitude for roll/pitch modulation
-        self.a_orientation = 0.2
 
-    def get_3d_orientation(
-        self, t: float
-    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
-        """
-        Return: qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
-        """
-        t = t + self.T * 1 / 4
+    def get_2d_pt(self, t: float) -> Tuple[float, float, float, float, float, float]:
+        t = t + self.T / 4  # shift the phase to make the trajectory start at the origin
 
-        roll = -2 * self.a_orientation * np.sin(2 * self.omega * t) / 2
-        pitch = self.a_orientation * np.cos(self.omega * t)
-        yaw = np.pi / 2 * np.sin(self.omega * t + np.pi) + np.pi / 2
+        x = self.a * np.cos(self.omega * t)
+        y = self.a * np.sin(2 * self.omega * t)
 
-        # tf_trans.quaternion_from_euler returns (x, y, z, w)
-        qx, qy, qz, qw = tf_trans.quaternion_from_euler(roll, pitch, yaw)
+        vx = -self.a * self.omega * np.sin(self.omega * t)
+        vy = 2 * self.a * self.omega * np.cos(2 * self.omega * t)
 
-        roll_rate = -2 * 2 * self.a_orientation * self.omega * np.cos(2 * self.omega * t) / 2
-        pitch_rate = -self.a_orientation * self.omega * np.sin(self.omega * t)
-        yaw_rate = np.pi / 2 * self.omega * np.cos(self.omega * t + np.pi / 2)
+        ax = -self.a * self.omega**2 * np.cos(self.omega * t)
+        ay = -4 * self.a * self.omega**2 * np.sin(2 * self.omega * t)
 
-        roll_acc = -2 * -4 * self.a_orientation * self.omega**2 * np.sin(2 * self.omega * t) / 2
-        pitch_acc = -self.a_orientation * self.omega**2 * np.cos(self.omega * t)
-        yaw_acc = -np.pi / 2 * self.omega**2 * np.sin(self.omega * t + np.pi / 2)
-
-        return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+        return x, y, vx, vy, ax, ay
 
     def get_3d_pt(
         self, t: float
@@ -66,6 +53,32 @@ class LemniscateTraj(BaseTraj):
         return x, y, z, vx, vy, vz, ax, ay, az
 
 
+class LemniscateTrajOmni(LemniscateTraj):
+    def __init__(self, loop_num=1) -> None:
+        super().__init__(loop_num)
+        self.a_orientation = 0.5
+
+    def get_3d_orientation(
+        self, t: float
+    ) -> Tuple[float, float, float, float, float, float, float, float, float, float]:
+        t = t + self.T * 1 / 4
+
+        roll = -2 * self.a_orientation * np.sin(2 * self.omega * t) / 2
+        pitch = self.a_orientation * np.cos(self.omega * t)
+        yaw = np.pi / 2 * np.sin(self.omega * t + np.pi) + np.pi / 2
+        (qx, qy, qz, qw) = tf_trans.quaternion_from_euler(roll, pitch, yaw)
+
+        roll_rate = -2 * 2 * self.a_orientation * self.omega * np.cos(2 * self.omega * t) / 2
+        pitch_rate = -self.a_orientation * self.omega * np.sin(self.omega * t)
+        yaw_rate = np.pi / 2 * self.omega * np.cos(self.omega * t + np.pi / 2)
+
+        roll_acc = -2 * -4 * self.a_orientation * self.omega**2 * np.sin(2 * self.omega * t) / 2
+        pitch_acc = -self.a_orientation * self.omega**2 * np.cos(self.omega * t)
+        yaw_acc = -np.pi / 2 * self.omega**2 * np.sin(self.omega * t + np.pi / 2)
+
+        return qw, qx, qy, qz, roll_rate, pitch_rate, yaw_rate, roll_acc, pitch_acc, yaw_acc
+
+
 def yaw_to_quaternion(yaw: float) -> Tuple[float, float, float, float]:
     """
     roll = pitch = 0, yaw given
@@ -82,7 +95,7 @@ def generate_trajectory_csv(
     dt: float,
     csv_path: str,
 ):
-    traj = LemniscateTraj()
+    traj = LemniscateTrajOmni()
     traj.T = T
     traj.omega = 2 * np.pi / traj.T
 

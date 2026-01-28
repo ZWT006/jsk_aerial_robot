@@ -3,6 +3,10 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 
 # 2 aerial_robot_planning roscd python scripts/mpc_smach_node.py beetle1
 
+# 3 100 sample waypoints experiments
+# rosbag record -O 100samplesRL /beetle_omni/joint_states /beetle_omni/uav/cog/odom /beetle_omni/uav/baselink/odom /beetle_omni/ground_truth /desired_3D_pose /beetle_omni/four_axes/command /beetle_omni/observation_debug
+# rosbag record -O 100samplesNMPC /beetle1/joint_states /beetle1/uav/cog/odom /beetle1/uav/baselink/odom /beetle1/ground_truth /beetle1/four_axes/command /beetle1/nmpc/viz_ref /beetle1/gimbals_ctrl
+
 
 # policy2025-12-05_13-21-20.onnx
 # policy-2025-12-06_16-55-18-20000.onnx ideal obs
@@ -95,7 +99,7 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-23_20-34-47-20000.onnx
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-23_20-34-47-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
