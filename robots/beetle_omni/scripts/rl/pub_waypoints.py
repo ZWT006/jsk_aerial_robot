@@ -37,7 +37,26 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 #     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
 # ]
 
+
+
 ######################################################################
+
+WAYPOINTS = [
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 90.0, 0.0, 0.0],    # Hover at 1m
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
+    [0.0, 0.0, 1.0, 0.0, 90.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 0.0, 90.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 180.0, 0.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 0.0, 180.0, 0.0],    # Return origin, Down
+    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    
+    [0.0, 0.0, 1.0, 0.0, 180.0, 0.0],    # Return origin, Down
+    # [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],   
+]
+
 # want to show large tilt (back)
 # WAYPOINTS = [
 #     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
@@ -51,14 +70,14 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 # ]
 
 # want to show large tilt
-WAYPOINTS = [
-    [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
-    [1.0, 0.0, 1.0, 45.0, 0.0, 0.0],    # Move X+
-    [0.0, 1.0, 1.0, 0.0, -25.0, 0.0],    # Move X+
-    [-1.0, 0.0, 1.0, -25.0, 0.0, 0.0],   # Move Y+, Up, Yaw 90
-    [0.0, 0.0, 0.8, 0.0, 0.0, 90.0],
-    [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],  # Move X-, Yaw 180
-]
+# WAYPOINTS = [
+#     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
+#     [1.0, 0.0, 1.0, 45.0, 0.0, 0.0],    # Move X+
+#     [0.0, 1.0, 1.0, 0.0, -25.0, 0.0],    # Move X+
+#     [-1.0, 0.0, 1.0, -25.0, 0.0, 0.0],   # Move Y+, Up, Yaw 90
+#     [0.0, 0.0, 0.8, 0.0, 0.0, 90.0],
+#     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],  # Move X-, Yaw 180
+# ]
 
 # Challenge Waypoints
 # WAYPOINTS = [

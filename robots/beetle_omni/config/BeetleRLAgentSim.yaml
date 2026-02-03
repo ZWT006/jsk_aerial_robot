@@ -98,8 +98,12 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-23_20-34-47-18000.onnx
 # policy-2026-01-23_20-34-47-20000.onnx
 
+# policy-2026-01-09_20-11-41-20000.onnx benchmark
+# policy-2026-01-27_20-34-14-20000.onnx reset zero
+# reset random
+
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-01-27_20-34-14-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
