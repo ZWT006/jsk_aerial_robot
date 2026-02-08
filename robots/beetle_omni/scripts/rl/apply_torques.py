@@ -100,10 +100,10 @@ def apply_force_sequence(duration, interval):
 
 def main():
     parser = argparse.ArgumentParser(description="Apply external forces to a robot link in Gazebo.")
-    parser.add_argument("--duration", type=float, default=1.0, 
-                        help="Duration to apply each force (seconds). Default: 1.0")
-    parser.add_argument("--interval", type=float, default=5.0, 
-                        help="Rest interval between forces (seconds). Default: 5.0")
+    parser.add_argument("--duration", type=float, default=0.05, 
+                        help="Duration to apply each force (seconds). Default: 0.05")
+    parser.add_argument("--interval", type=float, default=2.0, 
+                        help="Rest interval between forces (seconds). Default: 2.0")
     
     args = parser.parse_args()
 

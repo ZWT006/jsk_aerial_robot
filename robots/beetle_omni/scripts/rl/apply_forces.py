@@ -9,8 +9,8 @@ from geometry_msgs.msg import Wrench, Point
 # 1. Define Root Link Name
 # Format is usually "model_name::link_name"
 # You can check the model name in Gazebo (left panel) or `rostopic echo /gazebo/model_states`
-MODEL_NAME = "beetle_omni" 
-# MODEL_NAME = "beetle1" 
+# MODEL_NAME = "beetle_omni" 
+MODEL_NAME = "beetle1" 
 LINK_NAME = "root" 
 BODY_NAME = f"{MODEL_NAME}::{LINK_NAME}"
 
@@ -34,7 +34,7 @@ FORCE_SEQUENCE = [
     [0.0, 0.0, -20.0],    # Force +Y
     [0.0, 0.0, -50.0],   # Force -Y
     [0.0, 0.0, -100.0],    # Force XY
-    [0.0, 0.0, -200.0],   # Force -Z (Down)
+    # [0.0, 0.0, -200.0],   # Force -Z (Down)
     # [0.0, 0.0, -500.0],    # Force +Z (Up)
 ]
 # =================================================
@@ -103,10 +103,10 @@ def apply_force_sequence(duration, interval):
 
 def main():
     parser = argparse.ArgumentParser(description="Apply external forces to a robot link in Gazebo.")
-    parser.add_argument("--duration", type=float, default=1.0, 
-                        help="Duration to apply each force (seconds). Default: 1.0")
-    parser.add_argument("--interval", type=float, default=5.0, 
-                        help="Rest interval between forces (seconds). Default: 5.0")
+    parser.add_argument("--duration", type=float, default=2.0, 
+                        help="Duration to apply each force (seconds). Default: 2.0")
+    parser.add_argument("--interval", type=float, default=2.0, 
+                        help="Rest interval between forces (seconds). Default: 2.0")
     
     args = parser.parse_args()
 
