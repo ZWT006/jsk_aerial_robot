@@ -259,6 +259,11 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   gimbal_effort_pub4_ = nh_.advertise<std_msgs::Float64>("servo_controller/gimbals/controller4/simulation/command", 1);
   gimbal_debug_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl_debug", 1);
   obs_debug_pub_ = nh_.advertise<std_msgs::Float32MultiArray>("observation_debug", 1);
+  reload_policy_srv_ = nh_.advertiseService("rlagent/reload_policy",
+      &BeetlePoseRLAgent::reloadPolicyCallback, this);
+  reload_params_srv_ = nh_.advertiseService("rlagent/reload_params",
+      &BeetlePoseRLAgent::reloadParamsCallback, this);
+  ROS_INFO("[RL-Agent] Services ready: rlagent/reload_policy, rlagent/reload_params");
 
    /* reset control input */
   thrust_cmd_.base_thrust = std::vector<float>(thrust_size_, 0.0);
@@ -910,6 +915,124 @@ void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
     }
     ROS_WARN("Rotor %d fault detected via fault topic.", msg->data);
   }
+}
+
+bool BeetlePoseRLAgent::reloadPolicyCallback(
+    beetle_omni::ReloadPolicy::Request &req,
+    beetle_omni::ReloadPolicy::Response &res)
+{
+  if (req.policy_name.empty()) {
+    res.success = false;
+    res.message = "policy_name is empty";
+    return true;
+  }
+  std::string pkg_path = ros::package::getPath("beetle_omni");
+  std::string model_path = pkg_path + "/" + req.policy_name;
+
+  std::ifstream f(model_path.c_str());
+  if (!f.good()) {
+    res.success = false;
+    res.message = "Policy file not found: " + model_path;
+    ROS_WARN("[RL-Agent] %s", res.message.c_str());
+    return true;
+  }
+
+  std::lock_guard<std::mutex> lock(data_mutex_);
+
+  if (input_name_)  { allocator_.Free(const_cast<char*>(input_name_));  input_name_  = nullptr; }
+  if (output_name_) { allocator_.Free(const_cast<char*>(output_name_)); output_name_ = nullptr; }
+  session_.reset();
+
+  try {
+    initRLAgent(model_path);
+  } catch (const std::exception &e) {
+    res.success = false;
+    res.message = std::string("Failed to load policy: ") + e.what();
+    ROS_ERROR("[RL-Agent] %s", res.message.c_str());
+    return true;
+  }
+
+  size_t expected = static_cast<size_t>(gimbal_size_ + thrust_size_);
+  if (action_size_ != expected) {
+    res.success = false;
+    res.message = "Policy action_size=" + std::to_string(action_size_) +
+                  " does not match gimbal_size+thrust_size=" + std::to_string(expected);
+    ROS_ERROR("[RL-Agent] %s", res.message.c_str());
+    return true;
+  }
+
+  catch_obs_ = false;
+  action_.assign(action_size_, 0.0f);
+  last_action_.assign(action_size_, 0.0f);
+  for (size_t i = static_cast<size_t>(gimbal_size_); i < action_size_; ++i)
+    action_[i] = static_cast<float>(-thrust_default_ / scales["thrust"]);
+
+  res.success = true;
+  res.message = "Policy reloaded: " + req.policy_name;
+  ROS_INFO("[RL-Agent] %s", res.message.c_str());
+  return true;
+}
+
+bool BeetlePoseRLAgent::reloadParamsCallback(
+    std_srvs::Trigger::Request &/*req*/,
+    std_srvs::Trigger::Response &res)
+{
+  ros::NodeHandle rl_nh(nh_, "rlagent");
+  std::lock_guard<std::mutex> lock(data_mutex_);
+
+  getParam<bool>(rl_nh, "enable_thrust",        enable_thrust_,        enable_thrust_);
+  getParam<bool>(rl_nh, "enable_gimbal",         enable_gimbal_,        enable_gimbal_);
+  getParam<bool>(rl_nh, "rlagent_verbose",       verbose_,              verbose_);
+  getParam<bool>(rl_nh, "rlagent_debug",         debug_,                debug_);
+  getParam<bool>(rl_nh, "rlagent_forward_info",  forward_info_,         forward_info_);
+  getParam<double>(rl_nh, "thrust_default",      thrust_default_,       thrust_default_);
+  getParam<double>(rl_nh, "thrust_limit",        thrust_limit_,         thrust_limit_);
+  getParam<double>(rl_nh, "thrust_tau",          thrust_tau_,           thrust_tau_);
+  getParam<double>(rl_nh, "gimbal_kp",           gimbal_kp_,            gimbal_kp_);
+  getParam<double>(rl_nh, "gimbal_kd",           gimbal_kd_,            gimbal_kd_);
+
+  double new_thrust_scale = thrust_scale_default_;
+  getParam<double>(rl_nh, "thrust_scale", new_thrust_scale, new_thrust_scale);
+  thrust_scale_default_ = std::min(new_thrust_scale, 1.0);
+
+  // Goal position
+  double goal_pos_x = desired_pose_.pose.position.x;
+  double goal_pos_y = desired_pose_.pose.position.y;
+  double goal_pos_z = desired_pose_.pose.position.z;
+  getParam<double>(rl_nh, "goal_pos_x", goal_pos_x, goal_pos_x);
+  getParam<double>(rl_nh, "goal_pos_y", goal_pos_y, goal_pos_y);
+  getParam<double>(rl_nh, "goal_pos_z", goal_pos_z, goal_pos_z);
+  if (goal_pos_z >= 0.3) {
+    desired_pose_.pose.position.x = goal_pos_x;
+    desired_pose_.pose.position.y = goal_pos_y;
+    desired_pose_.pose.position.z = goal_pos_z;
+  } else {
+    ROS_WARN("[RL-Agent] goal_pos_z=%.3f too low, keeping old value", goal_pos_z);
+  }
+
+  // Goal orientation
+  double goal_r = 0.0, goal_p = 0.0, goal_y = 0.0;
+  tf::Matrix3x3(tf::Quaternion(desired_pose_.pose.orientation.x,
+                               desired_pose_.pose.orientation.y,
+                               desired_pose_.pose.orientation.z,
+                               desired_pose_.pose.orientation.w)).getRPY(goal_r, goal_p, goal_y);
+  getParam<double>(rl_nh, "goal_angle_R", goal_r, goal_r);
+  getParam<double>(rl_nh, "goal_angle_P", goal_p, goal_p);
+  getParam<double>(rl_nh, "goal_angle_Y", goal_y, goal_y);
+  tf::Quaternion q = tf::createQuaternionFromRPY(goal_r, goal_p, goal_y);
+  desired_pose_.pose.orientation.x = q.x();
+  desired_pose_.pose.orientation.y = q.y();
+  desired_pose_.pose.orientation.z = q.z();
+  desired_pose_.pose.orientation.w = q.w();
+
+  res.success = true;
+  res.message = "Params reloaded."
+                " enable_thrust=" + std::to_string(enable_thrust_) +
+                " enable_gimbal=" + std::to_string(enable_gimbal_) +
+                " thrust_scale=" + std::to_string(thrust_scale_default_) +
+                " goal_z=" + std::to_string(desired_pose_.pose.position.z);
+  ROS_INFO("[RL-Agent] %s", res.message.c_str());
+  return true;
 }
 
   }  // namespace aerial_robot_control
