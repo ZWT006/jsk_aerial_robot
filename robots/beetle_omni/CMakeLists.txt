@@ -16,8 +16,10 @@ find_package(catkin REQUIRED COMPONENTS
         aerial_robot_model
         aerial_robot_msgs
         diagnostic_msgs
+        message_generation
         pluginlib
         roscpp
+        std_srvs
 )
 
 # Use $ENV{HOME} rather than '~' to get a portable absolute path.
@@ -33,8 +35,12 @@ endif()
 ## catkin specific configuration ##
 ###################################
 
+add_service_files(FILES ReloadPolicy.srv)
+generate_messages(DEPENDENCIES std_msgs)
+
 catkin_package(
-  CATKIN_DEPENDS aerial_robot_control aerial_robot_estimation aerial_robot_model aerial_robot_msgs pluginlib roscpp spinal
+  CATKIN_DEPENDS aerial_robot_control aerial_robot_estimation aerial_robot_model aerial_robot_msgs
+                 message_runtime pluginlib roscpp spinal std_srvs
 )
 
 ###########
@@ -62,7 +68,11 @@ target_include_directories(gimbal_response PRIVATE ${catkin_INCLUDE_DIRS})
 target_link_libraries(gimbal_response ${catkin_LIBRARIES})
 
 add_library(beetle_pose_rlagent src/beetle_pose_rlagent.cpp)
-target_link_libraries(beetle_pose_rlagent 
+add_dependencies(beetle_pose_rlagent
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_link_libraries(beetle_pose_rlagent
   ${catkin_LIBRARIES}
   ${ONNXRUNTIME_DIR}/lib/libonnxruntime.so
   )

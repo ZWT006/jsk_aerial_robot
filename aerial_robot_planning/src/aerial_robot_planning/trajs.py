@@ -263,6 +263,8 @@ class SetWaypointsTraj(BaseTraj):
     def __init__(self, loop_num) -> None:
         super().__init__(loop_num)
         self.waypoints = [
+            [0.0, 0.0, 1.5, 25.0, 0.0, 0.0],
+        ]
         # want to show large tilt (back)
         #     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
         #     [1.0, 0.0, 1.5, 45.0, 0.0, 0.0],    # Move X+
@@ -309,7 +311,7 @@ class SetWaypointsTraj(BaseTraj):
         self.att_rate = np.array([0.0, 0.0, 0.0])
         self.att_acc = np.array([0.0, 0.0, 0.0])
     
-        self.t_converge = 8.0
+        self.t_converge = 10000.0
         self.n_wp = len(self.waypoints)
         self.T = len(self.waypoints) * self.t_converge
 

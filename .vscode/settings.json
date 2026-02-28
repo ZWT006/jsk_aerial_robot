@@ -101,5 +101,15 @@
         "variant": "cpp",
         "hash_map": "cpp",
         "hash_set": "cpp"
+    },
+    "urdf-visualizer.packages": {
+        "beetle": "${workspaceFolder}/robots/beetle",
+        "beetle_omni": "${workspaceFolder}/robots/beetle_omni",
+        "mini_quadrotor": "${workspaceFolder}/robots/mini_quadrotor",
+        "spidar": "${workspaceFolder}/robots/spidar",
+        "dragon": "${workspaceFolder}/robots/dragon",
+        "hydrus": "${workspaceFolder}/robots/hydrus",
+        "a1_description": "${workspaceFolder}/robots/a1_description",
+        "go1_description": "${workspaceFolder}/robots/go1_description"
     }
 }

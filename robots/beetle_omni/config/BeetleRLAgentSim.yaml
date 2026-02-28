@@ -7,99 +7,12 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # rosbag record -O 100samplesRL /beetle_omni/joint_states /beetle_omni/uav/cog/odom /beetle_omni/uav/baselink/odom /beetle_omni/ground_truth /desired_3D_pose /beetle_omni/four_axes/command /beetle_omni/observation_debug
 # rosbag record -O 100samplesNMPC /beetle1/joint_states /beetle1/uav/cog/odom /beetle1/uav/baselink/odom /beetle1/ground_truth /beetle1/four_axes/command /beetle1/nmpc/viz_ref /beetle1/gimbals_ctrl
 
-
-# policy2025-12-05_13-21-20.onnx
-# policy-2025-12-06_16-55-18-20000.onnx ideal obs
-# policy-2025-12-06_20-47-26-10000.onnx
-# policy-2025-12-07_21-49-50-20000.onnx
-# policy-2025-12-09_20-26-18-20000.onnx
-# policy-2025-12-10_14-44-57-19000.onnx
-# policy-2025-12-12_10-32-54-10000.onnx # current best
-# policy-2025-12-12_13-55-59-20000.onnx
-# policy-2025-12-13_22-59-22-20000.onnx
-# policy-2025-12-14_21-59-46-20000.onnx
-# policy-2025-12-14_19-50-42-7000.onnx
-# policy-2025-12-15_15-19-58-12000.onnx
-# policy-2025-12-15_14-40-00-6000.onnx
-# policy-2025-12-16_22-57-33-20000.onnx
-# policy-2025-12-19_21-00-13-39000.onnx
-# policy-2025-12-21_22-10-04-26000.onnx
-# policy-2025-12-22_22-43-28-46000.onnx
-# policy-2025-12-26_22-58-28-46000.onnx # fault tolerant
-# policy-2025-12-26_12-54-59-50000.onnx # emhanced normal flight
-# policy-2025-12-31_23-33-56-48000.onnx # fault_obs: false
-# policy-2026-01-03_15-04-36-17000.onnx # fault obs: false, add pose delay
-# policy-2026-01-04_20-19-20-2000.onnx # history obs
-# policy-2026-01-04_14-47-50-18000.onnx
-# policy-2026-01-05_15-27-36-24000.onnx # bad
-# policy-2026-01-06_13-52-36-18000.onnx # maybe deploy
-# policy-2026-01-06_13-43-33-18000.onnx # pose history
-# policy-2026-01-06_13-24-08-18000.onnx # not good
-# policy-2026-01-08_14-21-53-12000.onnx # (basic) looks nice, deploy, obcilation in vertical z
-# policy-2026-01-08_14-33-57-12000.onnx # (pose history) garbage!
-# policy-2026-01-08_14-37-39-12000.onnx # (basic with fault) maybe deploy
-
-# policy-2026-01-09_14-56-22-18000.onnx # basic
-# policy-2026-01-09_15-24-01-18000.onnx # pose history
-# New Training Reward
-# policy-2026-01-09_20-11-41-20000.onnx # (hovering) benchmark basic
-# policy-2026-01-09_21-07-56-17000.onnx # (hovering, roll=45 gimbal oscilation)basic based on bemchmark
-# policy-2026-01-10_14-56-54-23000.onnx # (oscillation) basic with large gimbbal align reward
-# policy-2026-01-11_15-15-13-19000.onnx # basic with fault tolerant
-# New velocity reward
-# policy-2026-01-11_18-11-25-16000.onnx # (looks nice, slow lin_vel, but maybe too slow ang_vel)basic
-# policy-2026-01-11_23-07-30-32000.onnx # (hovering) basic with fault tolerant
-# policy-2026-01-12_11-23-03-10000.onnx # (hovering, too fast) basic, vel 0.1
-# policy-2026-01-12_15-57-02-15000.onnx # (hovering, Roll 45 is unstable) resume, vel 0.3, gimbal vibration 5e-5
-
-# policy-2026-01-12_17-20-27-18000.onnx # (small gimbal oscillation, cannot large tilt)
-# policy-2026-01-13_11-28-37-18000.onnx # (cannot large tilt)
-# policy-2026-01-13_22-34-50-24000.onnx # (cannot large tilt)
-# policy-2026-01-15_10-20-10-17000.onnx #
-
-# policy-2026-01-16_11-07-06-21000.onnx
-# policy-2026-01-15_18-05-16-20000.onnx # basic for benchmark
-
-# policy-2026-01-18_19-46-02-32000.onnx # base
-# benchmark => different scheme
-# policy-2026-01-18_14-58-28-20000.onnx # change vel reward
-# policy-2026-01-18_15-11-36-20000.onnx # add align gimbal (danger tilt !)
-# policy-2026-01-18_15-17-44-20000.onnx # add init vel
-# policy-2026-01-18_15-33-42-20000.onnx # thrust power reward 1e-5 => 5e-5
-
-
-# 
-# policy-2026-01-19_11-21-32-12000.onnx # 
-# policy-2026-01-19_16-57-26-20000.onnx # change reset gimbal
-# policy-2026-01-19_17-15-02-20000.onnx # 1) uneven reward scale 1e-5 => 5e-5; 2) uneven refer abs => square(square); 3) align axis step => square
-# policy-2026-01-19_20-35-45-18000.onnx # remove, change thrust uneven
-# policy-2026-01-20_10-56-37-20000.onnx # hovering, large roll danger
-# policy-2026-01-20_18-43-13-20000.onnx # hovering, large roll danger
-# policy-2026-01-20_18-51-28-20000.onnx # hovering, roll45?
-# policy-2026-01-20_22-37-31-20000.onnx # want to try deploy
-# policy-2026-01-20_22-37-31-26000.onnx
-# policy-2026-01-20_22-37-31-32000.onnx
-
-# policy-2026-01-22_22-08-43-20000.onnx: 只是添加了一些 log, 并改了gimbal_acc的计算，原理上不影响: But looks very good in sim!
-# policy-2026-01-22_22-20-21-20000.onnx: (seems no difference, but cannot flip)remove align zaxis
-# policy-2026-01-22_22-28-02-20000.onnx: (no flip, seems large gimbal oscillation)target pose tilt range 0.55 pi
-# policy-2026-01-23_23-01-46-20000.onnx: static stable reset with initial vel
-# policy-2026-01-23_23-01-46-40000.onnx: static stable reset with initial vel
+# policy-2026-01-09_20-11-41-20000.onnx benchmark
 # policy-2026-01-23_20-34-47-20000.onnx: (looks nice)reset with reference, based on raw benchmark
 
-# 2026-01-25 try to deploy models:
-# policy-2026-01-22_22-08-43-20000.onnx; 19000, 18000, 16000
-# policy-2026-01-24_22-40-44-20000.onnx; 18000, 16000, try
-# policy-2026-01-24_22-47-24-20000.onnx; 18000, 16000, try
-# policy-2026-01-24_22-59-35-20000.onnx; cannot flip
-# policy-2026-01-24_23-16-56-20000.onnx; cannot flip, danger
-# policy-2026-01-24_23-16-56-40000.onnx; give up
-
-# policy-2026-01-23_20-34-47-18000.onnx
-# policy-2026-01-23_20-34-47-20000.onnx
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-01-09_20-11-41-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-02-27_19-36-39-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false

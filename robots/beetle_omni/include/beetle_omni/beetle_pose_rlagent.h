@@ -24,6 +24,8 @@
 #include <geometry_msgs/Transform.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2/LinearMath/Matrix3x3.h>
+#include <std_srvs/Trigger.h>
+#include <beetle_omni/ReloadPolicy.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
@@ -65,6 +67,10 @@ namespace aerial_robot_control
     void faultCallback(const std_msgs::Int8::ConstPtr& msg);
     void brakeCallback(const std_msgs::Empty::ConstPtr& msg);
     void unbrakeCallback(const std_msgs::Empty::ConstPtr& msg);
+    bool reloadPolicyCallback(beetle_omni::ReloadPolicy::Request &req,
+                              beetle_omni::ReloadPolicy::Response &res);
+    bool reloadParamsCallback(std_srvs::Trigger::Request &req,
+                              std_srvs::Trigger::Response &res);
 
   private:
     ros::Subscriber goal_sub_, gimbal_sub_, odom_sub_, imu_sub_;
@@ -72,6 +78,8 @@ namespace aerial_robot_control
     ros::Publisher thrust_pub_, thrust_debug_pub_, gimbal_pub_, gimbal_debug_pub_;
     ros::Publisher gimbal_effort_pub1_, gimbal_effort_pub2_, gimbal_effort_pub3_, gimbal_effort_pub4_;
     ros::Publisher obs_debug_pub_;
+    ros::ServiceServer reload_policy_srv_;
+    ros::ServiceServer reload_params_srv_;
     spinal::FourAxisCommand thrust_cmd_;
     sensor_msgs::JointState gimbal_cmd_;
     // ----------- Controller parameters -----------
