@@ -29,7 +29,7 @@
   <arg name="spawn_roll" default="0.0"/>
   <arg name="paused" default="false" />
   <arg name="config_dir" default="$(find beetle_omni)/config"/>
-  <arg name="robot_id" default="1" />
+  <arg name="robot_id" default="11" />
   <arg name="robot_ns" value="beetle_omni" />
 
   <arg name="nmpc_mode" default="9" />
