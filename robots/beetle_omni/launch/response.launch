@@ -14,17 +14,17 @@
     <param name="save_path" value="$(find beetle_omni)/data"/>
     <param name="enable_save" value="false"/>
     <param name="control_freq" value="200"/>
-    <param name="effort_ctrl" value="true"/>
+    <param name="effort_ctrl" value="false"/>
     <param name="default_gimbal" value="0.0"/>
     <!-- <param name="kp" value="0.285"/>
     <param name="kd" value="0.019"/> -->
     <param name="kp" value="0.344964875"/>
     <param name="kd" value="0.0094725"/>
-    <param name="duration" value="102"/>
-    <param name="gimbal_range" value="3.5"/>
-    <param name="cmd_period" value="0.5"/>
+    <param name="duration" value="96"/>
+    <param name="gimbal_range" value="0.0"/>
+    <param name="cmd_period" value="4.0"/>
     <param name="period_scale" value="4.0"/>
-    <param name="sweep_mode" value="True"/>
+    <param name="sweep_mode" value="False"/>
     <param name="enable_gimbal_0" value="true"/>
     <param name="enable_gimbal_1" value="true"/>
     <param name="enable_gimbal_2" value="true"/>

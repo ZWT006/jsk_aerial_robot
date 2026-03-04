@@ -573,7 +573,7 @@ void BeetlePoseRLAgent::buildObservation()
     }
   }
   else
-    lin_vel_world  = estimator_->getVel(Frame::BASELINK, estimate_mode_); // TODO: change to BASELINK
+    lin_vel_world  = estimator_->getVel(Frame::COG, estimate_mode_); // TODO: change to BASELINK
   
   tf::Vector3 lin_vel_body = rotate_by_quat_inv(body_quat, lin_vel_world);
 
