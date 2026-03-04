@@ -10,9 +10,9 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-01-09_20-11-41-20000.onnx benchmark
 # policy-2026-01-23_20-34-47-20000.onnx: (looks nice)reset with reference, based on raw benchmark
 
-
+# policy-2026-03-02_11-45-01-20000.onnx based on benchmark with beetle-rl urdf
 rlagent:
-  onnx_model_path: "policy/policy-2026-02-27_19-36-39-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-03-02_11-45-01-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
@@ -35,7 +35,7 @@ rlagent:
   thrust_scale: 1.0
   thrust_tau: 0.0 # 0.0342
   thrust_target_delay_steps: 1
-  enable_gimbal: true
+  enable_gimbal: false
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 1.2

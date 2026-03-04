@@ -67,7 +67,7 @@ rlagent:
   ideal_obs: false
   ideal_obs_topic: "uav/cog/odom"
   ideal_delay: 0
-  fc2root_transform: true
+  fc2root_transform: true # general, in estimator, baselink is set as fc frame (IMU), while the policy is trained with base_link as reference (Geometry Center )
   rlagent_verbose: false
   rlagent_debug: true
   rlagent_forward_info: true
