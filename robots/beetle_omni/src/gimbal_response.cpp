@@ -32,12 +32,14 @@ using spinal::Imu;
 
 class GimbalResponse {
 public:
-    GimbalResponse(const ros::NodeHandle& nh, int control_hz = 50, double duration = 10.0, 
-        double gimbal_range = M_PI, double period = 2.0, const std::string& save_path = "/tmp/")
+    GimbalResponse(const ros::NodeHandle& nh, int control_hz = 50, double duration = 10.0, int gimbal_size = 4,
+        double gimbal_range = M_PI, double period_scale = 1.0, double period = 2.0, const std::string& save_path = "/tmp/")
         : nh_(nh),
         control_hz_(control_hz),
         duration_(duration),
+        gimbal_size_(gimbal_size),
         gimbal_range_(gimbal_range),
+        period_scale_(period_scale),
         period_(period),
         save_path_(save_path)
     {
@@ -53,7 +55,8 @@ public:
         gimbal_effort_pub4_ = nh_.advertise<std_msgs::Float64>("/beetle_omni/servo_controller/gimbals/controller4/simulation/command", 1);
 
         // defaults
-        gimbal_default_pos_ = {0.0f, 0.0f, 0.0f, 0.0f};
+        gimbal_default_pos_ = std::vector<float>(gimbal_size_, 0.0f);
+
         step_count_ = 0;
         save_count_ = static_cast<int>(control_hz_ * duration_);
     }
@@ -90,21 +93,26 @@ public:
                 std::chrono::high_resolution_clock::now() - start_time_
             ).count();
             double timestep = static_cast<double>(infer_ns) / 1e9;
-            double cmdphase = std::fmod(timestep, 32 * period_) ;
-            if (cmdphase > 16.0 * period_) {
-                target_pos_ = sinTriangleWave(timestep, period_, gimbal_range_);
-            }
-            else if (cmdphase > 12.0 * period_) {
-                target_pos_ = trapezoidWave(timestep, period_, gimbal_range_);
-            }
-            else if (cmdphase > 8.0 * period_) {
-                target_pos_ = squareWave(timestep, period_, gimbal_range_);
-            }
-            else if (cmdphase > 4.0 * period_) {
-                target_pos_ = triangleWave(timestep, period_, gimbal_range_);
-            }
-            else {
-                target_pos_ = sinWave(timestep, period_, gimbal_range_);
+            if (sweep_mode_) {
+                target_pos_ = sweepSinTriangleWave(timestep, period_, period_scale_ * period_,
+                                                    duration_, static_cast<float>(gimbal_range_));
+            } else {
+                double cmdphase = std::fmod(timestep, 32 * period_);
+                if (cmdphase > 16.0 * period_) {
+                    target_pos_ = sinTriangleWave(timestep, period_, gimbal_range_);
+                }
+                else if (cmdphase > 12.0 * period_) {
+                    target_pos_ = trapezoidWave(timestep, period_, gimbal_range_);
+                }
+                else if (cmdphase > 8.0 * period_) {
+                    target_pos_ = squareWave(timestep, period_, gimbal_range_);
+                }
+                else if (cmdphase > 4.0 * period_) {
+                    target_pos_ = triangleWave(timestep, period_, gimbal_range_);
+                }
+                else {
+                    target_pos_ = sinWave(timestep, period_, gimbal_range_);
+                }
             }
 
             msg.header.stamp = ros::Time::now();
@@ -226,9 +234,9 @@ public:
     }
 
     std::vector<float> trapezoidWave(double t, double period, float amplitude) {
-        std::vector<float> wave(4, 0.0f);
+        std::vector<float> wave(gimbal_size_, 0.0f);
         wave = triangleWave(t, period, amplitude * 2.0f);
-        for (int i = 0; i < 4; ++i) {
+        for (int i = 0; i < gimbal_size_; ++i) {
             if (wave[i] > amplitude) wave[i] = amplitude;
             if (wave[i] < -amplitude) wave[i] = -amplitude;
         }
@@ -236,7 +244,7 @@ public:
     }
 
     std::vector<float> triangleWave(double t, double period, float amplitude) {
-        std::vector<float> wave(4, 0.0f);
+        std::vector<float> wave(gimbal_size_, 0.0f);
         double phase = std::fmod(t + period / 4.0, period);
         double half = period / 2.0;
         // slope to go from -A to +A over half period: 4*A/period
@@ -247,33 +255,67 @@ public:
         } else {
             val = static_cast<float>(amplitude - slope * (phase - half));
         }
-        for (int i = 0; i < 4; ++i) wave[i] = val;
+        for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
         return wave;
     }
 
     std::vector<float> squareWave(double t, double period, float amplitude) {
-        std::vector<float> wave(4, 0.0f);
+        std::vector<float> wave(gimbal_size_, 0.0f);
         double phase = std::fmod(t, period);
         float val = (phase < period / 2.0) ? amplitude : -amplitude;
-        for (int i = 0; i < 4; ++i) wave[i] = val;
+        for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
         return wave;
     }
 
     std::vector<float> sinWave(double t, double period, float amplitude) {
-        std::vector<float> wave(4, 0.0f);
+        std::vector<float> wave(gimbal_size_, 0.0f);
         double phase = std::fmod(t, period);
         float val = static_cast<float>(amplitude * std::sin((2.0 * M_PI / period) * phase));
-        for (int i = 0; i < 4; ++i) wave[i] = val;
+        for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
         return wave;
     }
 
     std::vector<float> sinTriangleWave(double t, double period, float amplitude) {
-        std::vector<float> wave(4, 0.0f);
+        std::vector<float> wave(gimbal_size_, 0.0f);
         double phase = std::fmod(t, period);
         std::vector<float> triangleVal = triangleWave(t, period * 32.0, amplitude);
         amplitude = std::abs(triangleVal[0]);
         float val = static_cast<float>(amplitude * std::sin((2.0 * M_PI / period) * phase));
-        for (int i = 0; i < 4; ++i) wave[i] = val;
+        for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
+        return wave;
+    }
+
+    // Chirp sine wave whose amplitude is modulated by a triangle envelope.
+    // - period sweeps linearly from period_min to period_max over the active window
+    // - envelope triangle period = 16 * current_period  (abs-folded → two amplitude bumps)
+    // - 1 s silence (return 0 = default) is prepended and appended for easy trimming
+    std::vector<float> sweepSinTriangleWave(double t, double period_min, double period_max,
+                                             double duration, float amplitude) {
+        std::vector<float> wave(gimbal_size_, 0.0f);
+        const double pad = 1.0;
+        const double active_dur = duration - 2.0 * pad;
+        // padding windows → return default (0)
+        if (t < pad || t > duration - pad || active_dur <= 0.0) return wave;
+
+        double t_a = t - pad;                               // time within active segment [0, active_dur]
+        double alpha = t_a / active_dur;                    // [0, 1]
+        double cur_period = period_min + (period_max - period_min) * alpha;
+
+        // Chirp phase: φ = 2π ∫₀^{t_a} 1/period(s) ds
+        // period(s) = p0 + (p1-p0)*s/T  →  φ = 2π·T/(p1-p0)·ln(cur_period/p0)
+        double phi;
+        if (std::abs(period_max - period_min) < 1e-9) {
+            phi = 2.0 * M_PI * t_a / period_min;
+        } else {
+            phi = 2.0 * M_PI * active_dur / (period_max - period_min)
+                  * std::log(cur_period / period_min);
+        }
+
+        // Amplitude envelope: |triangleWave| with period = 16 * cur_period
+        float env = std::abs(triangleWave(t_a, 16.0 * cur_period, amplitude)[0]);
+
+        float val = static_cast<float>(env * std::sin(phi));
+        for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
         return wave;
     }
 
@@ -286,6 +328,9 @@ public:
     }
     void setSaveEnable(bool save_enable) {
         save_enable_ = save_enable;
+    }
+    void setSweepMode(bool sweep_mode) {
+        sweep_mode_ = sweep_mode;
     }
     void setGains(double kp, double kd, bool gimbal_effort_ctrl, double default_gimbal) {
         kp_ = kp;
@@ -319,19 +364,22 @@ private:
     double duration_ = 2.0; // seconds
     double period_ = 2.0; // seconds
     double gimbal_range_ = M_PI; // radians
+    double period_scale_ = 1.0; // scale factor for period
+    int gimbal_size_ = 4; // number of gimbals to control
     std::string save_path_;
     bool save_enable_ = false;
+    bool sweep_mode_ = false;
     int save_count_ = 0;
     std::chrono::high_resolution_clock::time_point start_time_;
     std::vector<std::vector<float>> gimbal_data_; // [step][data]
-    std::vector<float> gimbal_pos_ = std::vector<float>(4, 0.0f);
-    std::vector<float> gimbal_vel_ = std::vector<float>(4, 0.0f);
-    std::vector<float> last_gimbal_pos_ = std::vector<float>(4, 0.0f);
+    std::vector<float> gimbal_pos_ = std::vector<float>(gimbal_size_, 0.0f);
+    std::vector<float> gimbal_vel_ = std::vector<float>(gimbal_size_, 0.0f);
+    std::vector<float> last_gimbal_pos_ = std::vector<float>(gimbal_size_, 0.0f);
     std::vector<float> gimbal_default_pos_;
     // publishers data
-    std::vector<float> target_pos_ = std::vector<float>(4, 0.0f);
-    std::vector<float> last_target_pos_ = std::vector<float>(4, 0.0f);
-    std::vector<bool> gimbal_enable_ = std::vector<bool>(4, true);
+    std::vector<float> target_pos_ = std::vector<float>(gimbal_size_, 0.0f);
+    std::vector<float> last_target_pos_ = std::vector<float>(gimbal_size_, 0.0f);
+    std::vector<bool> gimbal_enable_ = std::vector<bool>(gimbal_size_, true);
 
     void _gimbal_callback(const sensor_msgs::JointState::ConstPtr& msg) {
         std::lock_guard<std::mutex> lk(data_mutex_);
@@ -353,9 +401,11 @@ int main(int argc, char** argv) {
     int freq;
     bool enable_gimbal_0, enable_gimbal_1, enable_gimbal_2, enable_gimbal_3;
     bool enable_save;
+    int gimbal_size = 4;
     double duration;
     double gimbal_range;
     double cmd_period;
+    double period_scale;
     double kp_, kd_;
     bool gimbal_effort_ctrl;
     double default_gimbal;
@@ -368,8 +418,12 @@ int main(int argc, char** argv) {
     nh.param<int>("control_freq", freq, 200);
     nh.param<double>("gimbal_range", gimbal_range, M_PI);
     nh.param<double>("cmd_period", cmd_period, 2.0);
+    nh.param<double>("period_scale", period_scale, 1.0);
     nh.param<std::string>("save_path", save_path, std::string("/tmp/"));
     nh.param<bool>("enable_save", enable_save, false);
+    bool sweep_mode;
+    nh.param<bool>("sweep_mode", sweep_mode, false);
+    nh.param<int>("gimbal_size", gimbal_size, 4);
     nh.param<bool>("enable_gimbal_0", enable_gimbal_0, false);
     nh.param<bool>("enable_gimbal_1", enable_gimbal_1, false);
     nh.param<bool>("enable_gimbal_2", enable_gimbal_2, false);
@@ -389,9 +443,10 @@ int main(int argc, char** argv) {
     );
 
     try {
-        GimbalResponse response(nh, freq, duration, gimbal_range, cmd_period, save_path);
+        GimbalResponse response(nh, freq, duration, gimbal_size, gimbal_range, period_scale, cmd_period, save_path);
         response.setControlEnable(enable_gimbal_0, enable_gimbal_1, enable_gimbal_2, enable_gimbal_3);
         response.setSaveEnable(enable_save);
+        response.setSweepMode(sweep_mode);
         response.setGains(kp_, kd_, gimbal_effort_ctrl, default_gimbal);
         response.spin();
     } catch (const std::exception& e) {

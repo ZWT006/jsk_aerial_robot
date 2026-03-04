@@ -573,7 +573,7 @@ void BeetlePoseRLAgent::buildObservation()
     }
   }
   else
-    lin_vel_world  = estimator_->getVel(Frame::COG, estimate_mode_);
+    lin_vel_world  = estimator_->getVel(Frame::BASELINK, estimate_mode_); // TODO: change to BASELINK
   
   tf::Vector3 lin_vel_body = rotate_by_quat_inv(body_quat, lin_vel_world);
 
@@ -591,7 +591,7 @@ void BeetlePoseRLAgent::buildObservation()
     }
   }
   else
-    ang_vel_body = estimator_->getAngularVel(Frame::COG, estimate_mode_);
+    ang_vel_body = estimator_->getAngularVel(Frame::COG, estimate_mode_); // TODO: change to BASELINK
   // tf::Vector3 ang_vel_body = rotate_by_quat_inv(body_quat, ang_vel_world);
   // gravity projection (rotate world [0,0,-1] into body)
   tf::Vector3 gravity_b = rotate_by_quat_inv(body_quat, tf::Vector3(0.0, 0.0, -1.0));
