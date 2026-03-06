@@ -38,10 +38,10 @@ def parse_color(s: str):
 
 def main():
     parser = argparse.ArgumentParser(description='Visualize odom trajectory as a time-limited LINE_STRIP marker')
-    # parser.add_argument('--topic', type=str, default='/beetle_omni/uav/baselink/odom', help='Odometry topic to subscribe')
-    parser.add_argument('--topic', type=str, default='/beetle1/uav/cog/odom', help='Odometry topic to subscribe')
+    parser.add_argument('--topic', type=str, default='/beetle_omni/uav/baselink/odom', help='Odometry topic to subscribe')
+    # parser.add_argument('--topic', type=str, default='/beetle1/uav/cog/odom', help='Odometry topic to subscribe')
     parser.add_argument('--frame', type=str, default='world', help='Marker frame_id')
-    parser.add_argument('--duration', type=float, default=2.0, help='Trail duration in seconds')
+    parser.add_argument('--duration', type=float, default=10.0, help='Trail duration in seconds')
     parser.add_argument('--rate', type=float, default=10.0, help='Publish rate (Hz)')
     parser.add_argument('--color', type=parse_color, default=(1.0, 0.0, 0.0), help='RGB color as "r,g,b" (0..1)')
     parser.add_argument('--alpha', type=float, default=1.0, help='Alpha (0..1)')

@@ -6,6 +6,7 @@ import sys, select, termios, tty
 import rospy
 from std_msgs.msg import Empty
 from std_msgs.msg import Int8
+from std_msgs.msg import Float32
 # from aerial_robot_msgs.msg import FlightNav
 import rosgraph
 
@@ -35,14 +36,26 @@ CTRL+c to quit
 """
 
 def getKey():
-        tty.setraw(sys.stdin.fileno())
-        select.select([sys.stdin], [], [], 0)
-        key = sys.stdin.read(1)
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
-        return key
+    tty.setraw(sys.stdin.fileno())
+    select.select([sys.stdin], [], [], 0)
+    key = sys.stdin.read(1)
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+    return key
 
 def printMsg(msg, msg_len = 50):
-        print(msg.ljust(msg_len) + "\r", end="")
+    print(msg.ljust(msg_len) + "\r", end="")
+
+# Global variables for battery monitoring
+low_voltage = 22.0  # Default value
+
+def battery_voltage_callback(msg):
+    global low_voltage
+    if msg.data < 19.2:
+        printMsg("\033[91m Alert!!! Unsafe Battery Voltage : {:.2f}V\033[0m".format(msg.data))
+    elif msg.data < low_voltage:
+        printMsg("\033[93m Warrning! Low Battery Voltage : {:.2f}V\033[0m".format(msg.data))
+    else:
+        printMsg("\033[92m ======= Battery Voltage: {:.2f}V =======\033[0m".format(msg.data))
 
 if __name__=="__main__":
         settings = termios.tcgetattr(sys.stdin)
@@ -51,16 +64,16 @@ if __name__=="__main__":
         print(msg)
 
         if not robot_ns:
-                master = rosgraph.Master('/rostopic')
-                try:
-                        _, subs, _ = master.getSystemState()
+            master = rosgraph.Master('/rostopic')
+            try:
+                _, subs, _ = master.getSystemState()
 
-                except socket.error:
-                        raise ROSTopicIOException("Unable to communicate with master!")
+            except socket.error:
+                raise ROSTopicIOException("Unable to communicate with master!")
 
-                teleop_topics = [topic[0] for topic in subs if 'teleop_command/start' in topic[0]]
-                if len(teleop_topics) == 1:
-                        robot_ns = teleop_topics[0].split('/teleop')[0]
+            teleop_topics = [topic[0] for topic in subs if 'teleop_command/start' in topic[0]]
+            if len(teleop_topics) == 1:
+                robot_ns = teleop_topics[0].split('/teleop')[0]
 
         ns = robot_ns + "/teleop_command"
         land_pub = rospy.Publisher(ns + '/land', Empty, queue_size=1)
@@ -78,92 +91,97 @@ if __name__=="__main__":
         z_vel    = rospy.get_param("z_vel", 0.2)
         yaw_vel  = rospy.get_param("yaw_vel", 0.2)
         fault = Int8()
+        
+        # Battery voltage monitoring
+        low_voltage = rospy.get_param("~low_voltage", 22.0)
+        battery_voltage_sub = rospy.Subscriber(robot_ns + '/battery_voltage_status', Float32, battery_voltage_callback)
 
         motion_start_pub = rospy.Publisher('task_start', Empty, queue_size=1)
 
         try:
-                while(True):
-                        # nav_msg = FlightNav()
-                        # nav_msg.control_frame = FlightNav.WORLD_FRAME
-                        # nav_msg.target = FlightNav.COG
+            while(True):
+                # nav_msg = FlightNav()
+                # nav_msg.control_frame = FlightNav.WORLD_FRAME
+                # nav_msg.target = FlightNav.COG
 
-                        key = getKey()
+                key = getKey()
 
-                        msg = ""
+                msg = ""
 
-                        if key == 'l':
-                                land_pub.publish(Empty())
-                                msg = "send land command"
-                        if key == 'r':
-                                start_pub.publish(Empty())
-                                msg = "send motor-arming command"
-                        if key == 'h':
-                                halt_pub.publish(Empty())
-                                msg = "send motor-disarming (halt) command"
-                        if key == 'f':
-                                force_landing_pub.publish(Empty())
-                                msg = "send force landing command"
-                        if key == 't':
-                                takeoff_pub.publish(Empty())
-                                msg = "send takeoff command"
-                        # if key == 'b':
-                        #         brake_pub.publish(Empty())
-                        #         print("----- brake command sent -----")
-                        # if key == 'B':
-                        #         unbrake_pub.publish(Empty())
-                        #         print("----- unbrake command sent -----")
-                        if key >= '0' and key <= '9':
-                                fault.data = int(key)
-                                fault_pub.publish(fault)
-                                print("----- fault command {} sent -----".format(fault.data))
-                        # if key == 'x':
-                        #         motion_start_pub.publish(Empty())
-                        #         msg = "send task-start command"
-                        # if key == 'w':
-                        #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_vel_x = xy_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send +x vel command"
-                        # if key == 's':
-                        #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_vel_x = -xy_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send -x vel command"
-                        # if key == 'a':
-                        #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_vel_y = xy_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send +y vel command"
-                        # if key == 'd':
-                        #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_vel_y = -xy_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send -y vel command"
-                        # if key == 'q':
-                        #         nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_omega_z = yaw_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send +yaw vel command"
-                        # if key == 'e':
-                        #         nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_omega_z = -yaw_vel
-                        #         msg = "send -yaw vel command"
-                        #         nav_pub.publish(nav_msg)
-                        # if key == '[':
-                        #         nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_vel_z = z_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send +z vel command"
-                        # if key == ']':
-                        #         nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
-                        #         nav_msg.target_vel_z = -z_vel
-                        #         nav_pub.publish(nav_msg)
-                        #         msg = "send -z vel command"
-                        if key == '\x03':
-                                break
+                if key == 'l':
+                        land_pub.publish(Empty())
+                        msg = "===== send land command ====="
+                if key == 'r':
+                        start_pub.publish(Empty())
+                        msg = "===== send motor-arming command ====="
+                if key == 'h':
+                        halt_pub.publish(Empty())
+                        msg = "===== send motor-disarming (halt) command ====="
+                if key == 'f':
+                        force_landing_pub.publish(Empty())
+                        msg = "===== send force landing command ====="
+                if key == 't':
+                        takeoff_pub.publish(Empty())
+                        msg = "===== send takeoff command ====="
+                # if key == 'b':
+                #         brake_pub.publish(Empty())
+                #         msg = "===== send brake command ====="
+                # if key == 'B':
+                #         unbrake_pub.publish(Empty())
+                #         msg = "===== send unbrake command ====="
+                if key >= '0' and key <= '9':
+                        fault.data = int(key)
+                        fault_pub.publish(fault)
+                        msg = "=====\033[93m send fault command: \033[91m{}\033[0m =====".format(fault.data)
+                # if key == 'x':
+                #         motion_start_pub.publish(Empty())
+                #         msg = "===== send task-start command ====="
+                # if key == 'w':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_x = xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +x vel command ====="
+                # if key == 's':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_x = -xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send -x vel command ====="
+                # if key == 'a':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_y = xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +y vel command ====="
+                # if key == 'd':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_y = -xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send -y vel command ====="
+                # if key == 'q':
+                #         nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_omega_z = yaw_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +yaw vel command ====="
+                # if key == 'e':
+                #         nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_omega_z = -yaw_vel
+                #         msg = "===== send -yaw vel command ====="
+                #         nav_pub.publish(nav_msg)
+                # if key == '[':
+                #         nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_z = z_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +z vel command ====="
+                # if key == ']':
+                #         nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_z = -z_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send -z vel command ====="
+                if key == '\x03':
+                        break
 
-                        printMsg(msg)
-                        rospy.sleep(0.001)
+                printMsg(msg)
+                
+                rospy.sleep(0.001)
 
         except Exception as e:
                 print(repr(e))

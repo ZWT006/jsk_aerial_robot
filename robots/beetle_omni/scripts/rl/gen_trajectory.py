@@ -56,7 +56,7 @@ class LemniscateTraj(BaseTraj):
 class LemniscateTrajOmni(LemniscateTraj):
     def __init__(self, loop_num=1) -> None:
         super().__init__(loop_num)
-        self.a_orientation = 0.5
+        self.a_orientation = 2.5
 
     def get_3d_orientation(
         self, t: float

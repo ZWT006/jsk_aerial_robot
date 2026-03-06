@@ -81,7 +81,7 @@ def main():
     parser.add_argument('--alpha', type=float, default=0.8, help='Alpha (0..1)')
     parser.add_argument('--width', type=float, default=0.03, help='Line width (scale.x)')
     parser.add_argument('--ns', type=str, default='trajectory_ref', help='Marker namespace')
-    parser.add_argument("--file", type=str, default="data/lemniscate_traj_3d_0.5.csv", 
+    parser.add_argument("--file", type=str, default="data/lemniscate_traj_3d_2.5.csv", 
                         help="Relative path to CSV file from package root")
     parser.add_argument("--package", type=str, default="beetle_omni", 
                         help="ROS package name to locate file in")
