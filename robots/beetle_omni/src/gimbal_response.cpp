@@ -56,6 +56,8 @@ public:
 
         // defaults
         gimbal_default_pos_ = std::vector<float>(gimbal_size_, 0.0f);
+        q_cmd_state_ = std::vector<float>(gimbal_size_, 0.0f);
+        v_cmd_state_ = std::vector<float>(gimbal_size_, 0.0f);
 
         step_count_ = 0;
         save_count_ = static_cast<int>(control_hz_ * duration_);
@@ -93,7 +95,15 @@ public:
                 std::chrono::high_resolution_clock::now() - start_time_
             ).count();
             double timestep = static_cast<double>(infer_ns) / 1e9;
-            if (sweep_mode_) {
+            double dt = (step_count_ == 1) ? (1.0 / control_hz_) : (timestep - last_timestep_);
+            if (constrained_chirp_mode_) {
+                target_pos_ = constrainedChirpWave(timestep, dt, f_min_, f_max_,
+                                                    v_max_, a_max_,
+                                                    gimbal_default_pos_[0],
+                                                    static_cast<float>(gimbal_range_),
+                                                    chirp_sweep_type_);
+                last_timestep_ = timestep;
+            } else if (sweep_mode_) {
                 target_pos_ = sweepSinTriangleWave(timestep, period_, period_scale_ * period_,
                                                     duration_, static_cast<float>(gimbal_range_));
             } else {
@@ -285,6 +295,146 @@ public:
         return wave;
     }
 
+    // Constrained chirp wave with velocity/acceleration limits.
+    // - frequency sweeps from f_min to f_max (linear or logarithmic)
+    // - amplitude dynamically adjusted to satisfy constraints
+    // - 1 s silence (return 0) is prepended and appended
+    // - uses integrator states for smooth trajectory
+    std::vector<float> constrainedChirpWave(double t, double dt,
+                                             double f_min, double f_max,
+                                             double v_max, double a_max,
+                                             float q_center, float q_max,
+                                             const std::string& sweep_type) {
+        std::vector<float> wave(gimbal_size_, 0.0f);
+        
+        // 1s padding at start and end
+        const double pad = 1.0;
+        const double active_dur = duration_ - 2.0 * pad;
+        
+        // Return zero (relative to q_center) during padding periods
+        if (t < pad || t > duration_ - pad || active_dur <= 0.0) {
+            // Reset/maintain states at center position
+            for (int i = 0; i < gimbal_size_; ++i) {
+                q_cmd_state_[i] = q_center;
+                v_cmd_state_[i] = 0.0f;
+                wave[i] = 0.0f;  // relative position = 0
+            }
+            return wave;
+        }
+        
+        // Active segment
+        double t_a = t - pad;  // time within active segment [0, active_dur]
+        double alpha = t_a / active_dur;  // [0, 1]
+        
+        // ----------------------------------------
+        // 1. Instantaneous frequency based on sweep type
+        // ----------------------------------------
+        double f_t;
+        if (sweep_type == "log" || sweep_type == "logarithmic") {
+            // Logarithmic sweep: f(t) = f_min * (f_max/f_min)^alpha
+            if (f_min > 0 && f_max > 0 && f_max >= f_min) {
+                f_t = f_min * std::pow(f_max / f_min, alpha);
+            } else {
+                f_t = f_min;
+            }
+        } else if (sweep_type == "exp" || sweep_type == "exponential") {
+            // Exponential sweep: smoother transition at low frequencies
+            // f(t) = f_min * exp(alpha * ln(f_max/f_min))
+            if (f_min > 0 && f_max > 0 && f_max >= f_min) {
+                f_t = f_min * std::exp(alpha * std::log(f_max / f_min));
+            } else {
+                f_t = f_min;
+            }
+        } else {
+            // Linear sweep (default): f(t) = f_min + (f_max - f_min) * alpha
+            f_t = f_min + (f_max - f_min) * alpha;
+        }
+        
+        // Avoid divide-by-zero
+        if (f_t < 1e-6) f_t = 1e-6;
+        
+        // ----------------------------------------
+        // 2. Chirp phase = integral of frequency
+        // ----------------------------------------
+        double phase;
+        if (sweep_type == "log" || sweep_type == "logarithmic" || 
+            sweep_type == "exp" || sweep_type == "exponential") {
+            // For log/exp sweep: φ = 2π * f_min * T / ln(f_max/f_min) * (f(t)/f_min - 1)
+            if (f_max > f_min && f_min > 0) {
+                double ratio = f_max / f_min;
+                phase = 2.0 * M_PI * f_min * active_dur / std::log(ratio) 
+                        * (f_t / f_min - 1.0);
+            } else {
+                phase = 2.0 * M_PI * f_t * t_a;
+            }
+        } else {
+            // Linear sweep: φ = 2π*(f_min*t + 0.5*(f_max-f_min)/T * t^2)
+            phase = 2.0 * M_PI * (
+                f_min * t_a + 0.5 * (f_max - f_min) * t_a * t_a / active_dur
+            );
+        }
+        
+        // ----------------------------------------
+        // 3. Amplitude scheduling from constraints
+        // ----------------------------------------
+        double omega_t = 2.0 * M_PI * f_t;
+        float A_pos = q_max - q_center;  // symmetric workspace
+        float A_vel = static_cast<float>(v_max / omega_t);
+        float A_acc = static_cast<float>(a_max / (omega_t * omega_t));
+        float A_t = std::min({A_pos, A_vel, A_acc});
+        
+        // ----------------------------------------
+        // 4. Raw symmetric chirp reference
+        // ----------------------------------------
+        float q_raw = q_center + A_t * std::sin(phase);
+        
+        // Symmetric workspace limits
+        float q_min = q_center - A_pos;
+        if (q_raw > q_max) q_raw = q_max;
+        else if (q_raw < q_min) q_raw = q_min;
+        
+        // ----------------------------------------
+        // 5. Process each gimbal with integrator
+        // ----------------------------------------
+        for (int i = 0; i < gimbal_size_; ++i) {
+            // Desired velocity from position error
+            float v_ref = (q_raw - q_cmd_state_[i]) / dt;
+            
+            // Velocity clamp
+            if (v_ref > v_max) v_ref = v_max;
+            else if (v_ref < -v_max) v_ref = -v_max;
+            
+            // Acceleration clamp
+            float dv = v_ref - v_cmd_state_[i];
+            float dv_max = a_max * dt;
+            if (dv > dv_max) dv = dv_max;
+            else if (dv < -dv_max) dv = -dv_max;
+            
+            v_cmd_state_[i] += dv;
+            
+            // Extra velocity safety clamp
+            if (v_cmd_state_[i] > v_max) v_cmd_state_[i] = v_max;
+            else if (v_cmd_state_[i] < -v_max) v_cmd_state_[i] = -v_max;
+            
+            // Integrate velocity to position
+            q_cmd_state_[i] += v_cmd_state_[i] * dt;
+            
+            // Final position clamp
+            if (q_cmd_state_[i] > q_max) {
+                q_cmd_state_[i] = q_max;
+                if (v_cmd_state_[i] > 0) v_cmd_state_[i] = 0.0f;
+            } else if (q_cmd_state_[i] < q_min) {
+                q_cmd_state_[i] = q_min;
+                if (v_cmd_state_[i] < 0) v_cmd_state_[i] = 0.0f;
+            }
+            
+            // Output relative position (relative to q_center)
+            wave[i] = q_cmd_state_[i] - q_center;
+        }
+        
+        return wave;
+    }
+
     // Chirp sine wave whose amplitude is modulated by a triangle envelope.
     // - period sweeps linearly from period_min to period_max over the active window
     // - envelope triangle period = 16 * current_period  (abs-folded → two amplitude bumps)
@@ -332,6 +482,16 @@ public:
     void setSweepMode(bool sweep_mode) {
         sweep_mode_ = sweep_mode;
     }
+    void setConstrainedChirpMode(bool enable, double f_min, double f_max,
+                                 double v_max, double a_max,
+                                 const std::string& sweep_type) {
+        constrained_chirp_mode_ = enable;
+        f_min_ = f_min;
+        f_max_ = f_max;
+        v_max_ = v_max;
+        a_max_ = a_max;
+        chirp_sweep_type_ = sweep_type;
+    }
     void setGains(double kp, double kd, bool gimbal_effort_ctrl, double default_gimbal) {
         kp_ = kp;
         kd_ = kd;
@@ -370,6 +530,14 @@ private:
     bool save_enable_ = false;
     bool sweep_mode_ = false;
     int save_count_ = 0;
+    // -------- constrained chirp mode
+    bool constrained_chirp_mode_ = false;
+    double f_min_ = 0.1;          // Hz
+    double f_max_ = 2.0;          // Hz
+    double v_max_ = 2.0;          // rad/s
+    double a_max_ = 10.0;         // rad/s^2
+    double last_timestep_ = 0.0;  // for dt calculation
+    std::string chirp_sweep_type_ = "linear";  // "linear", "log", "exp"
     std::chrono::high_resolution_clock::time_point start_time_;
     std::vector<std::vector<float>> gimbal_data_; // [step][data]
     std::vector<float> gimbal_pos_ = std::vector<float>(gimbal_size_, 0.0f);
@@ -380,6 +548,9 @@ private:
     std::vector<float> target_pos_ = std::vector<float>(gimbal_size_, 0.0f);
     std::vector<float> last_target_pos_ = std::vector<float>(gimbal_size_, 0.0f);
     std::vector<bool> gimbal_enable_ = std::vector<bool>(gimbal_size_, true);
+    // state variables for constrained chirp (integrator states)
+    std::vector<float> q_cmd_state_;   // commanded position
+    std::vector<float> v_cmd_state_;   // commanded velocity
 
     void _gimbal_callback(const sensor_msgs::JointState::ConstPtr& msg) {
         std::lock_guard<std::mutex> lk(data_mutex_);
@@ -423,6 +594,16 @@ int main(int argc, char** argv) {
     nh.param<bool>("enable_save", enable_save, false);
     bool sweep_mode;
     nh.param<bool>("sweep_mode", sweep_mode, false);
+    // Constrained chirp parameters
+    bool constrained_chirp_mode;
+    double f_min, f_max, v_max_chirp, a_max_chirp;
+    std::string chirp_sweep_type;
+    nh.param<bool>("constrained_chirp_mode", constrained_chirp_mode, false);
+    nh.param<double>("f_min", f_min, 0.1);
+    nh.param<double>("f_max", f_max, 2.0);
+    nh.param<double>("v_max", v_max_chirp, 2.0);
+    nh.param<double>("a_max", a_max_chirp, 10.0);
+    nh.param<std::string>("chirp_sweep_type", chirp_sweep_type, std::string("linear"));
     nh.param<int>("gimbal_size", gimbal_size, 4);
     nh.param<bool>("enable_gimbal_0", enable_gimbal_0, false);
     nh.param<bool>("enable_gimbal_1", enable_gimbal_1, false);
@@ -432,21 +613,34 @@ int main(int argc, char** argv) {
     ROS_INFO("Gimbal Response:\n"
         "save_path=%s,\n"
         " control_freq=%d Hz, duration=%.1f s,\n"
-        " enable_gimbal=[%d,%d,%d,%d], enable_save=%d",
+        " enable_gimbal=[%d,%d,%d,%d], enable_save=%d\n"
+        " sweep_mode=%d, constrained_chirp_mode=%d",
         save_path.c_str(),
         freq, duration,
         static_cast<int>(enable_gimbal_0),
         static_cast<int>(enable_gimbal_1),
         static_cast<int>(enable_gimbal_2),
         static_cast<int>(enable_gimbal_3),
-        static_cast<int>(enable_save)
+        static_cast<int>(enable_save),
+        static_cast<int>(sweep_mode),
+        static_cast<int>(constrained_chirp_mode)
     );
+    if (constrained_chirp_mode) {
+        ROS_INFO("Constrained Chirp Config:\n"
+            " f_min=%.2f Hz, f_max=%.2f Hz\n"
+            " v_max=%.2f rad/s, a_max=%.2f rad/s^2\n"
+            " sweep_type=%s",
+            f_min, f_max, v_max_chirp, a_max_chirp, chirp_sweep_type.c_str()
+        );
+    }
 
     try {
         GimbalResponse response(nh, freq, duration, gimbal_size, gimbal_range, period_scale, cmd_period, save_path);
         response.setControlEnable(enable_gimbal_0, enable_gimbal_1, enable_gimbal_2, enable_gimbal_3);
         response.setSaveEnable(enable_save);
         response.setSweepMode(sweep_mode);
+        response.setConstrainedChirpMode(constrained_chirp_mode, f_min, f_max,
+                                         v_max_chirp, a_max_chirp, chirp_sweep_type);
         response.setGains(kp_, kd_, gimbal_effort_ctrl, default_gimbal);
         response.spin();
     } catch (const std::exception& e) {

@@ -42,7 +42,7 @@ def getKey():
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
     return key
 
-def printMsg(msg, msg_len = 50):
+def printMsg(msg, msg_len = 60):
     print(msg.ljust(msg_len) + "\r", end="")
 
 # Global variables for battery monitoring
