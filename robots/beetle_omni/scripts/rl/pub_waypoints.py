@@ -15,25 +15,25 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 # ==========================================
 
 # Flip Test Waypoints
-# WAYPOINTS = [
-#     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
-#     [0.0, 0.0, 1.0, 180.0, 0.0, 0.0],    # Move X+
-#     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
-#     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
-# ]
+WAYPOINTS = [
+    [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
+    [0.5, 0.0, 1.0, 0.0, 180.0, 0.0],    # Move X+
+    [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+    [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
+]
 
 # Vertical Flip Test Waypoints
 # WAYPOINTS = [
-#     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],    # Hover at 1m
-#     [0.0, 0.0, 1.2, 90.0, 0.0, 0.0],    # Move X+
-#     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+#     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
+#     [0.5, 0.0, 1.0, 0.0, 90.0, 0.0],    # Move X+
+#     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
 #     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
 # ]
 
 # 45 Roll Test Waypoints
 # WAYPOINTS = [
 #     [0.0, 0.0, 0.8, 0.0, 0.0, 0.0],    # Hover at 1m
-#     [0.8, 0.0, 0.8, -45.0, 0.0, 0.0],    # Hover at 1m
+#     [0.8, 0.0, 0.8, 0.0, 45.0, 0.0],    # Hover at 1m
 #     [0.0, 0.0, 0.55, 0.0, 0.0, 0.0],    # Return origin, Down
 # ]
 
@@ -103,14 +103,14 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 # ]
 
 # Extended
-WAYPOINTS = [
-    [0.0, 0.0, 2.0, 0.0, 0.0, 0.0],    # Hover at 1m
-    [2.0, 2.0, 1.5, 0.0, 45.0, 90.0],    # Move X+
-    [-2.0, 2.0, 1.5, 0.0, 90.0, 135.0],   # Move Y+, Up, Yaw 90
-    [-2.0, -2.0, 1.5, 0.0, 180.0, 225.0],  # Move X-, Yaw 180
-    [2.0, -2.0, 1.5, 45.0, 45.0, 315.0],  # Move X-, Roll 180
-    [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
-]
+# WAYPOINTS = [
+#     [0.0, 0.0, 2.0, 0.0, 0.0, 0.0],    # Hover at 1m
+#     [2.0, 2.0, 1.5, 0.0, 45.0, 90.0],    # Move X+
+#     [-2.0, 2.0, 1.5, 0.0, 90.0, 135.0],   # Move Y+, Up, Yaw 90
+#     [-2.0, -2.0, 1.5, 0.0, 180.0, 225.0],  # Move X-, Yaw 180
+#     [2.0, -2.0, 1.5, 45.0, 45.0, 315.0],  # Move X-, Roll 180
+#     [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # Move X-, Pitch 180
+# ]
 
 # Time interval for auto mode (seconds)
 WAYPOINT_INTER = 8.0 

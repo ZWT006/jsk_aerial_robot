@@ -13,7 +13,8 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-03-02_11-45-01-20000.onnx based on benchmark with beetle-rl urdf
 # policy-2026-03-04_22-25-52-20000.onnx se3 env
 # policy-2026-03-05_11-02-19-20000.onnx Omni env
-# policy-2026-03-05_22-29-42-20000.onnx
+# policy-2026-03-05_22-29-42-20000.onnx regoal with large vel penalty
+# policy-2026-03-05_22-29-42-20000.onnx regoal and random gimbal
 
 # rosservice call /beetle_omni/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-03-05_22-29-42-20000.onnx'"
