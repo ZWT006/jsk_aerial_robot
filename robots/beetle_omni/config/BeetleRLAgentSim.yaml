@@ -42,7 +42,7 @@ rlagent:
   thrust_scale: 1.0
   thrust_tau: 0.0 # 0.0342
   thrust_target_delay_steps: 1
-  enable_gimbal: true
+  enable_gimbal: false
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 1.2
