@@ -56,7 +56,7 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 
 # policy-2026-03-02_11-45-01-20000.onnx based on benchmark with beetle-rl urdf
 rlagent:
-  onnx_model_path: "policy/policy-2026-03-02_11-45-01-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-03-08_22-17-04-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
