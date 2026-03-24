@@ -59,11 +59,14 @@ def read_csv_trajectory(file_path):
 def main():
     parser = argparse.ArgumentParser(description="Publish trajectory from CSV relative to package.")
     # Default looks in 'config' folder of the package
-    parser.add_argument("--file", type=str, default="data/lemniscate_traj_3d_2.5.csv", 
+    # lemniscate_traj_3d_2.5.csv
+    # pitch90_yawRotation.csv
+    # 
+    parser.add_argument("--file", type=str, default="data/pitchRotation.csv", 
                         help="Relative path to CSV file from package root (e.g., config/traj.csv)")
     parser.add_argument("--package", type=str, default="beetle_omni", 
                         help="ROS package name to locate file in")
-    parser.add_argument("--dt", type=float, default=0.01, help="Time step between points (seconds)")
+    parser.add_argument("--dt", type=float, default=0.05, help="Time step between points (seconds)")
     parser.add_argument("--loop", type=int, default=1, help="Number of loops to run (default: 1)")
     args = parser.parse_args()
 

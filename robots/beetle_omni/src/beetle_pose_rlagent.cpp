@@ -873,9 +873,9 @@ void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
     }
   }
   else {
-    for (size_t i = 0; i < thrust_size_; ++i) {
-      thrust_scale_[i] = 1.0;
-    }
+    // for (size_t i = 0; i < thrust_size_; ++i) {
+    //   thrust_scale_[i] = 1.0;
+    // }
     thrust_scale_[msg->data - 1] = 0.0;
     if (fault_goal_) {
       // 1. Keep current desired position (already done by copy)
