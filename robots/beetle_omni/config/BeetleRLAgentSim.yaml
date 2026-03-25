@@ -13,16 +13,25 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-03-02_11-45-01-20000.onnx based on benchmark with beetle-rl urdf
 # policy-2026-03-04_22-25-52-20000.onnx se3 env
 # policy-2026-03-05_11-02-19-20000.onnx Omni env
-# policy-2026-03-05_22-29-42-20000.onnx regoal with large vel penalty
-# policy-2026-03-05_22-29-42-20000.onnx regoal and random gimbal
+# policy-2026-03-05_22-29-42-20000.onnx
+# policy-2026-03-08_22-17-04-20000.onnx
+# policy-2026-03-09_14-51-24-20000.onnx
+# policy-2026-03-10_11-20-54-20000.onnx
+# policy-2026-03-10_22-20-46-20000.onnx
+# policy-2026-03-10_22-20-46-20000.onnx
+# policy-2026-03-12_12-44-24-17000.onnx
+# policy-2026-03-12_22-13-54-20000.onnx
+# policy-2026-03-13_11-06-40-20000.onnx
+# policy-2026-03-14_15-50-02-20000.onnx
+
+# policy-2026-03-18_17-14-42-20000.onnx
+# policy-2026-03-22_23-33-02-20000.onnx # beetle-rl urdf, with benchmark training
 
 # rosservice call /beetle_omni/rlagent/reload_policy \
-#   "policy_name: 'policy/policy-2026-03-05_22-29-42-20000.onnx'"
-
-# policy-2026-03-07_17-18-26-20000.onnx
+#   "policy_name: 'policy/policy-2026-03-10_11-20-54-20000.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-03-07_17-18-26-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-03-23_11-29-05-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
@@ -45,7 +54,7 @@ rlagent:
   thrust_scale: 1.0
   thrust_tau: 0.0 # 0.0342
   thrust_target_delay_steps: 1
-  enable_gimbal: false
+  enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 1.2
@@ -57,9 +66,11 @@ rlagent:
   gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
   # gimbal_kp: 0.285
   # gimbal_kd: 0.019
-  gimbal_kp: 0.344964875
-  gimbal_kd: 0.0094725 # 
-  gimbal_limit: 3.5 # rad
+  # gimbal_kp: 0.344964875
+  # gimbal_kd: 0.0094725 # 
+  gimbal_kp: 0.45
+  gimbal_kd: 0.008 # 
+  gimbal_limit: 5.5 # rad
   gimbal_effort_ctrl: true
   gimbal_size: 4
   thrust_size: 4

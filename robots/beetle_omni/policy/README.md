@@ -2,6 +2,11 @@
 
 ### Launch
 
+Temporary USB symbolic link
+```
+sudo ln -s /dev/ttyUSB0 /dev/flight_controller
+```
+
 #### Configuration
 
 Check `config/BeetleRLAgentReal.yaml` and `config/BeetleRLAgentSim.yaml` to set parameters before launching.

@@ -84,11 +84,11 @@ rlagent:
   rlagent_forward_info: true
   gimbal_target_delay_steps: 0
   gimbal_obs_delay_steps: 0
-  enable_thrust: false
+  enable_thrust: true
   thrust_scale: 1.0
   thrust_tau: 0.0
   thrust_target_delay_steps: 0
-  enable_gimbal: false
+  enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 0.7
