@@ -19,8 +19,10 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # rosservice call /beetle_omni/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-03-05_22-29-42-20000.onnx'"
 
+# policy-2026-03-07_17-18-26-20000.onnx
+
 rlagent:
-  onnx_model_path: "policy/policy-2026-03-06_13-37-13-16000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-03-07_17-18-26-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false

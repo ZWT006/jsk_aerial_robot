@@ -13,13 +13,13 @@
     
     <param name="save_path" value="$(find beetle_omni)/data"/>
     <param name="enable_save" value="false"/>
-    <param name="control_freq" value="200"/>
-    <param name="duration" value="98"/>
+    <param name="control_freq" value="100"/>
+    <param name="duration" value="100"/>
     <param name="default_gimbal" value="0.0"/>
     <param name="gimbal_range" value="3.5"/>
     <param name="cmd_period" value="4.0"/>
     
-    <param name="effort_ctrl" value="true"/>
+    <param name="effort_ctrl" value="false"/>
     <!-- <param name="kp" value="0.285"/>
     <param name="kd" value="0.019"/> -->
     <param name="kp" value="0.344964875"/>
@@ -29,7 +29,7 @@
     <param name="period_scale" value="4.0"/>
 
     <param name="constrained_chirp_mode" value="True"/>
-     <param name="chirp_sweep_type" value="linear"/>
+    <param name="chirp_sweep_type" value="Linear"/>
     <param name="f_min" value="0.1"/>        <!-- 0.1 Hz -->
     <param name="f_max" value="5.0"/>        <!-- 5 Hz -->
     <param name="v_max" value="10.0"/>

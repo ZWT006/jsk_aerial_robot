@@ -60,8 +60,13 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-03-05_22-29-42-20000.onnx regoal with large vel penalty
 # policy-2026-03-06_13-37-13-16000.onnx regoal and random gimbal
 
+# rosservice call /beetle_omni/rlagent/reload_policy \
+#   "policy_name: 'policy/policy-2026-03-05_22-29-42-20000.onnx'"
+
+# policy-2026-03-06_22-36-41-20000.onnx
+# policy-2026-03-07_17-18-26-20000.onnx # gimbal slightly oscillation
 rlagent:
-  onnx_model_path: "policy/policy-2026-03-06_13-37-13-16000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-03-07_17-18-26-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false
@@ -79,11 +84,11 @@ rlagent:
   rlagent_forward_info: true
   gimbal_target_delay_steps: 0
   gimbal_obs_delay_steps: 0
-  enable_thrust: true
+  enable_thrust: false
   thrust_scale: 1.0
   thrust_tau: 0.0
   thrust_target_delay_steps: 0
-  enable_gimbal: true
+  enable_gimbal: false
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 0.7
