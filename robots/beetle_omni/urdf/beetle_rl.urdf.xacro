@@ -82,7 +82,7 @@
     <axis
       xyz="0 0 0" />
   </joint>
-  <link
+  <!-- <link
     name="battery_link">
     <inertial>
       <origin
@@ -129,7 +129,7 @@
       link="battery_link" />
     <axis
       xyz="0 0 0" />
-  </joint>
+  </joint> -->
 
     ## fc: flight controller. Note that "baselink" is assigned to "fc" in common.xacro by default
     <link name="fc">
