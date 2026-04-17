@@ -16,7 +16,7 @@
     <param name="control_freq" value="100"/>
     <param name="duration" value="100"/>
     <param name="default_gimbal" value="0.0"/>
-    <param name="gimbal_range" value="3.5"/>
+    <param name="gimbal_range" value="0.0"/>
     <param name="cmd_period" value="4.0"/>
     
     <param name="effort_ctrl" value="false"/>

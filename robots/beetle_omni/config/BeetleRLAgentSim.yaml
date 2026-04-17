@@ -28,12 +28,14 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-03-22_23-33-02-20000.onnx # beetle-rl urdf, with benchmark training
 # policy-2026-03-30_21-08-51-20000.onnx # fault tolerant (SE3 Pose)
 # policy-2026-03-31_12-08-11-20000.onnx # fault tolerant (yaw only)
+# policy-2026-04-10_19-43-23-20000.onnx
+# policy-2026-04-11_22-03-30-20000.onnx # beetle omni urdf
 
 # rosservice call /beetle_omni/rlagent/reload_policy \
-#   "policy_name: 'policy/policy-2026-03-10_11-20-54-20000.onnx'"
+#   "policy_name: 'policy/policy-2026-04-10_19-43-23-20000.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-03-31_12-08-11-20000.onnx" # Path in ros package
+  onnx_model_path: "policy/policy-2026-04-11_22-03-30-20000.onnx" # Path in ros package
   control_freq: 400.0
   decimation: 2
   history_obs: false

@@ -2,6 +2,7 @@
 <launch>
   ###########  launch config  ###########
   <!-- roslaunch beetle_omni bringup_rl_omni.launch real_machine:=false simulation:=True headless:=False -->
+  <!-- roslaunch beetle_omni bringup_rl_omni.launch real_machine:=True simulation:=False headless:=True -->
   <arg name="real_machine" default="True" />
   <arg name="simulation" default="False" />
   <arg name="control_mode" default="0" />

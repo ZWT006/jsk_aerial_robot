@@ -18,7 +18,7 @@
 
 /* User Configuration */
 // Timer Clock
-#define TIMER_CLOCK 100000000  // 100MHz
+#define TIMER_CLOCK 200000000  // Old: 100MHz 
 
 /* Definition */
 #define MHZ_TO_HZ(x) ((x) * 1000000)

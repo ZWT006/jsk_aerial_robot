@@ -258,7 +258,7 @@ int main(void)
 #else
   estimator_.init(&imu_, &baro_, NULL, &nh_);
 #endif
-
+  // DSHOT600
   dshot_.init(DSHOT600, &htim1, TIM_CHANNEL_1, &htim1, TIM_CHANNEL_2, &htim1, TIM_CHANNEL_3, &htim1, TIM_CHANNEL_4);
   dshot_.initTelemetry(&huart2);
 

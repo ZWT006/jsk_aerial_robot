@@ -142,10 +142,15 @@
 
 #define DX_BROADCAST_ID           	0xFE
 
+// Dynamixel Protocol 2.0 packet header.
+// The SDK names the fourth byte PKT_RESERVED; it is fixed to 0x00 for
+// ordinary instruction/status packets after 0xFF 0xFF 0xFD.
 #define HEADER0 				0xFF
 #define HEADER1 				0xFF
 #define HEADER2 				0xFD
 #define HEADER3 				0x00
+// Protocol 2.0 byte stuffing inserts an extra 0xFD after the sequence
+// 0xFF 0xFF 0xFD when it appears inside packet contents.
 #define EXCEPTION_ADDITIONAL_BYTE 0xFD
 
 #define INSTRUCTION_PACKET_SIZE 64
@@ -154,7 +159,8 @@
 #define MAX_SERVO_NUM			8
 #define PING_TRIAL_NUM			100
 
-//read status packet
+// Status packet parser states for:
+// FF FF FD 00 ID LEN_L LEN_H 0x55 ERR PARAM... CRC_L CRC_H
 #define READ_HEADER0					0
 #define READ_HEADER1					1
 #define READ_HEADER2					2
@@ -279,46 +285,63 @@ private:
   uint16_t buffer_length_;
 };
 
-class ServoData {
+class ServoData
+{
 public:
-	ServoData(){}
-  ServoData(uint8_t id): id_(id), torque_enable_(false), first_get_pos_flag_(true), internal_offset_(0), goal_position_(2048){}
+  ServoData(){}
+  ServoData(uint8_t id)
+    : id_(id), torque_enable_(false), first_get_pos_flag_(true), internal_offset_(0), goal_position_(2048)
+  {}
 
-	uint8_t id_;
-  	int32_t present_position_;
-	int32_t goal_position_;
-        int32_t calib_value_;
-	int32_t homing_offset_;
-        int32_t internal_offset_;
-        uint8_t present_temp_;
-	int16_t present_current_;
-	uint8_t moving_;
-	uint8_t hardware_error_status_;
-	uint16_t p_gain_, i_gain_, d_gain_;
-	uint16_t profile_velocity_;
-	uint16_t current_limit_;
-	uint16_t send_data_flag_;
-        uint16_t external_encoder_flag_;
-        int32_t joint_offset_;
-        uint16_t joint_resolution_;
-        uint16_t servo_resolution_;
-        float resolution_ratio_;
-	bool led_;
-	bool torque_enable_;
-	bool first_get_pos_flag_;
-        float angle_scale_;
-        uint16_t zero_point_offset_;
+  uint8_t id_;
+  int32_t present_position_;
+  int32_t goal_position_;
+  int32_t calib_value_;
+  int32_t homing_offset_;
+  int32_t internal_offset_;
+  uint8_t present_temp_;
+  int16_t present_current_;
+  uint8_t moving_;
+  uint8_t hardware_error_status_;
+  uint16_t p_gain_, i_gain_, d_gain_;
+  uint16_t profile_velocity_;
+  uint16_t current_limit_;
+  uint16_t send_data_flag_;
+  uint16_t external_encoder_flag_;
+  int32_t joint_offset_;
+  uint16_t joint_resolution_;
+  uint16_t servo_resolution_;
+  float resolution_ratio_;
+  bool led_;
+  bool torque_enable_;
+  bool first_get_pos_flag_;
+  float angle_scale_;
+  uint16_t zero_point_offset_;
 
-	void updateHomingOffset() { homing_offset_ = calib_value_ - present_position_;}
-	void setPresentPosition(int32_t present_position) {present_position_ = present_position + internal_offset_;}
-	int32_t getPresentPosition() const {return present_position_;}
-	void setGoalPosition(int32_t goal_position) {goal_position_ = resolution_ratio_ * goal_position - internal_offset_;}
-        int32_t getGoalPosition() const {return goal_position_;}
-        float getAngleScale() const {return angle_scale_;}
-        uint16_t getZeroPointOffset() const {return zero_point_offset_;}
-  
-
-	bool operator==(const ServoData& r) const {return this->id_ == r.id_;}
+  void updateHomingOffset(){
+    homing_offset_ = calib_value_ - present_position_;
+  }
+  void setPresentPosition(int32_t present_position){
+    present_position_ = present_position + internal_offset_;
+  }
+  int32_t getPresentPosition() const{
+    return present_position_;
+  }
+  void setGoalPosition(int32_t goal_position){
+    goal_position_ = resolution_ratio_ * goal_position - internal_offset_;
+  }
+  int32_t getGoalPosition() const{
+    return goal_position_;
+  }
+  float getAngleScale() const{
+    return angle_scale_;
+  }
+  uint16_t getZeroPointOffset() const{
+    return zero_point_offset_;
+  }
+  bool operator==(const ServoData& r) const{
+    return this->id_ == r.id_;
+  }
 };
 
 class DynamixelSerial
@@ -350,7 +373,7 @@ public:
   bool getROSCommFlag() const {return flag_send_ros_;}
 
 private:
-  UART_HandleTypeDef* huart_; // uart handlercmdReadPresentPosition
+  UART_HandleTypeDef* huart_; // UART handle for the shared half-duplex bus
   osMutexId* mutex_; // for UART (RS485) I/O mutex
   MagEncoder encoder_handler_;
   RingBufferDx<std::pair<uint8_t, uint8_t>, 64> instruction_buffer_;
@@ -376,6 +399,8 @@ private:
   std::pair<uint8_t, uint8_t> instruction_last_ = std::make_pair(255, 255);
 
 
+  // Local Protocol 2.0 packet helpers.
+  // These mirror the SDK packet handler flow, but are specialized for this MCU.
   void transmitInstructionPacket(uint8_t id, uint16_t len, uint8_t instruction, uint8_t* parameters);
   int8_t readStatusPacket(uint8_t status_packet_instruction);
 
