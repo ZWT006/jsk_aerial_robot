@@ -42,6 +42,7 @@
 #include "state_estimate/state_estimate.h"
 
 #include <std_msgs/UInt8.h>
+#include <std_msgs/UInt32.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_srvs/SetBool.h>
@@ -162,6 +163,7 @@ private:
   ros::Subscriber pwm_info_sub_;
   ros::Subscriber rpy_gain_sub_;
   ros::Subscriber pwm_test_sub_;
+  ros::Subscriber rotor_halt_mask_sub_;
   ros::Subscriber p_matrix_pseudo_inverse_inertia_sub_;
   ros::Subscriber torque_allocation_matrix_inv_sub_;
   ros::Subscriber sim_vol_sub_;
@@ -198,6 +200,7 @@ private:
   ros::Subscriber<spinal::PwmInfo, AttitudeController> pwm_info_sub_;
   ros::Subscriber<spinal::RollPitchYawTerms, AttitudeController> rpy_gain_sub_;
   ros::Subscriber<std_msgs::Float32, AttitudeController> pwm_test_sub_;
+  ros::Subscriber<std_msgs::UInt32, AttitudeController> rotor_halt_mask_sub_;
   ros::Subscriber<spinal::PMatrixPseudoInverseWithInertia, AttitudeController> p_matrix_pseudo_inverse_inertia_sub_;
   ros::Subscriber<spinal::TorqueAllocationMatrixInv, AttitudeController> torque_allocation_matrix_inv_sub_;
   ros::ServiceServer<std_srvs::SetBool::Request, std_srvs::SetBool::Response, AttitudeController> att_control_srv_;
@@ -284,6 +287,7 @@ private:
   uint32_t voltage_update_last_time_;
   uint32_t control_term_pub_last_time_, control_feedback_state_pub_last_time_;
   uint32_t pwm_pub_last_time_;
+  uint32_t rotor_halt_mask_;
   float pwm_test_value_;  // PWM Test
 
   void fourAxisCommandCallback(const spinal::FourAxisCommand& cmd_msg);
@@ -294,10 +298,16 @@ private:
   void thrustGainMapping();
   void maxYawGainIndex();
   void pwmTestCallback(const std_msgs::Float32& pwm_msg);
+  void rotorHaltMaskCallback(const std_msgs::UInt32& mask_msg);
   void pwmConversion(void);
   void pwmsControl(void);
 
   void reset(void);
+
+  bool isRotorHalted(uint8_t index) const
+  {
+    return index < 32 && ((rotor_halt_mask_ & (static_cast<uint32_t>(1) << index)) != 0U);
+  }
 
   float limit(float input, float limit)
   {

@@ -5,6 +5,8 @@
 #include "beetle_omni/beetle_pose_rlagent.h"
 #include <ros/package.h>
 #include <xmlrpcpp/XmlRpcValue.h>
+#include <algorithm>
+#include <string>
 
 #define PRINT_FREQUENCY 200
 
@@ -249,7 +251,6 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   odom_sub_ = nh_.subscribe(odom_topic, 1, &BeetlePoseRLAgent::odomCallback, this);
   brake_sub_ = nh_.subscribe("teleop_command/brake", 1, &BeetlePoseRLAgent::brakeCallback, this);
   unbrake_sub_ = nh_.subscribe("teleop_command/unbrake", 1, &BeetlePoseRLAgent::unbrakeCallback, this);
-  fault_sub_ = nh_.subscribe("teleop_command/fault", 1, &BeetlePoseRLAgent::faultCallback, this);
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
   thrust_debug_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command_debug", 1);
   gimbal_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl", 1);
@@ -259,11 +260,11 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   gimbal_effort_pub4_ = nh_.advertise<std_msgs::Float64>("servo_controller/gimbals/controller4/simulation/command", 1);
   gimbal_debug_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl_debug", 1);
   obs_debug_pub_ = nh_.advertise<std_msgs::Float32MultiArray>("observation_debug", 1);
+  rotor_fault_sub_ = nh_.subscribe("teleop_command/agentFaultRotor", 1, &BeetlePoseRLAgent::rotorFaultCallback, this);
   reload_policy_srv_ = nh_.advertiseService("rlagent/reload_policy",
       &BeetlePoseRLAgent::reloadPolicyCallback, this);
   reload_params_srv_ = nh_.advertiseService("rlagent/reload_params",
       &BeetlePoseRLAgent::reloadParamsCallback, this);
-  ROS_INFO("[RL-Agent] Services ready: rlagent/reload_policy, rlagent/reload_params");
 
    /* reset control input */
   thrust_cmd_.base_thrust = std::vector<float>(thrust_size_, 0.0);
@@ -856,37 +857,56 @@ void BeetlePoseRLAgent::unbrakeCallback(const std_msgs::Empty::ConstPtr& msg) {
   ROS_INFO("Control enabled via unbrake topic.");
 }
 
-void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
+void BeetlePoseRLAgent::rotorFaultCallback(const std_msgs::UInt32::ConstPtr& msg) {
   if (fault_injection_ == false) {
     ROS_WARN("Fault injection is disabled. Ignoring fault message.");
     return;
   }
-  if (msg->data < 0 || msg->data > static_cast<int8_t>(thrust_size_)) {
-    ROS_WARN("Received invalid rotor fault index: %d", msg->data);
-    return;
+  uint32_t valid_mask = 0;
+  if (thrust_size_ >= 32) {
+    valid_mask = 0xFFFFFFFFUL;
   }
-  thrust_fault_id_ = msg->data;
-  if (msg->data == 0) {
-    ROS_INFO("Recover all rotors to normal operation.");
-    for (size_t i = 0; i < thrust_size_; ++i) {
-      thrust_scale_[i] = 1.0;
+  else if (thrust_size_ > 0) {
+    valid_mask = (static_cast<uint32_t>(1) << thrust_size_) - 1U;
+  }
+  const size_t mask_width = thrust_size_ > 0 ? std::min(static_cast<size_t>(thrust_size_), static_cast<size_t>(32)) : 1U;
+  auto maskToBinaryString = [mask_width](uint32_t mask) {
+    std::string mask_str(mask_width, '0');
+    for (size_t bit = 0; bit < mask_width; ++bit) {
+      if ((mask & (static_cast<uint32_t>(1) << bit)) != 0U) {
+        mask_str[mask_width - 1U - bit] = '1';
+      }
     }
+    return mask_str;
+  };
+
+  uint32_t newly_halted_mask = 0;
+  if (msg->data == 0) {
+    rotor_halt_mask_ = 0;
+    ROS_INFO("Recover all rotors to normal operation.");
   }
   else {
-    // for (size_t i = 0; i < thrust_size_; ++i) {
-    //   thrust_scale_[i] = 1.0;
-    // }
-    thrust_scale_[msg->data - 1] = 0.0;
-    if (fault_goal_) {
+    const uint32_t requested_mask = msg->data;
+    const uint32_t valid_fault_mask = requested_mask & valid_mask;
+    if ((requested_mask & ~valid_mask) != 0U) {
+      const std::string valid_fault_mask_str = maskToBinaryString(valid_fault_mask);
+      ROS_WARN("Received rotor fault mask with bits beyond thrust_size=%d. Effective valid bits: %s.",
+               thrust_size_, valid_fault_mask_str.c_str());
+    }
+
+    newly_halted_mask = valid_fault_mask & ~rotor_halt_mask_;
+    rotor_halt_mask_ |= valid_fault_mask;
+
+    if (newly_halted_mask != 0U && fault_goal_) {
       // 1. Keep current desired position (already done by copy)
       geometry_msgs::PoseStamped fault_pose = desired_pose_;
       
       // 2. Extract current desired Yaw safely
       tf::Quaternion current_goal_quat(
-          desired_pose_.pose.orientation.x,
-          desired_pose_.pose.orientation.y,
-          desired_pose_.pose.orientation.z,
-          desired_pose_.pose.orientation.w);
+        desired_pose_.pose.orientation.x,
+        desired_pose_.pose.orientation.y,
+        desired_pose_.pose.orientation.z,
+        desired_pose_.pose.orientation.w);
       double goal_yaw = tf::getYaw(current_goal_quat);
 
       // 3. Determine Z-axis orientation (Up or Down)
@@ -913,7 +933,16 @@ void BeetlePoseRLAgent::faultCallback(const std_msgs::Int8::ConstPtr& msg) {
       desired_pose_ = fault_pose;
       ROS_INFO("Remove roll and pitch from goal due to rotor fault (keeping Yaw and Position).");
     }
-    ROS_WARN("Rotor %d fault detected via fault topic.", msg->data);
+    if (valid_fault_mask != 0U) {
+      const std::string valid_fault_mask_str = maskToBinaryString(valid_fault_mask);
+      const std::string rotor_halt_mask_str = maskToBinaryString(rotor_halt_mask_);
+      ROS_WARN("Rotor fault mask %s accumulated. Active rotor halt mask: %s.",
+               valid_fault_mask_str.c_str(), rotor_halt_mask_str.c_str());
+    }
+  }
+  for (size_t i = 0; i < thrust_scale_.size(); ++i) {
+    const bool halted = (i < 32) && ((rotor_halt_mask_ & (static_cast<uint32_t>(1) << i)) != 0U);
+    thrust_scale_[i] = halted ? 0.0f : 1.0f;
   }
 }
 

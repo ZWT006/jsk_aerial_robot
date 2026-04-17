@@ -13,8 +13,12 @@
 #include <math.h> // for M_PI
 
 #include <deque>
+#include <cstdint>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Float64.h>
+#include <std_msgs/UInt32.h>
+#include <std_msgs/Int8.h>
+#include <std_msgs/Empty.h>
 #include <spinal/FourAxisCommand.h>
 #include <spinal/Imu.h>
 #include <sensor_msgs/JointState.h>
@@ -64,7 +68,7 @@ namespace aerial_robot_control
     void gimbalCallback(const sensor_msgs::JointState::ConstPtr& msg);
     void odomCallback(const nav_msgs::Odometry::ConstPtr& msg);
     void imuCallback(const spinal::Imu::ConstPtr& msg);
-    void faultCallback(const std_msgs::Int8::ConstPtr& msg);
+    void rotorFaultCallback(const std_msgs::UInt32::ConstPtr& msg);
     void brakeCallback(const std_msgs::Empty::ConstPtr& msg);
     void unbrakeCallback(const std_msgs::Empty::ConstPtr& msg);
     bool reloadPolicyCallback(beetle_omni::ReloadPolicy::Request &req,
@@ -74,10 +78,10 @@ namespace aerial_robot_control
 
   private:
     ros::Subscriber goal_sub_, gimbal_sub_, odom_sub_, imu_sub_;
-    ros::Subscriber fault_sub_, brake_sub_, unbrake_sub_;
+    ros::Subscriber rotor_fault_sub_, brake_sub_, unbrake_sub_;
     ros::Publisher thrust_pub_, thrust_debug_pub_, gimbal_pub_, gimbal_debug_pub_;
     ros::Publisher gimbal_effort_pub1_, gimbal_effort_pub2_, gimbal_effort_pub3_, gimbal_effort_pub4_;
-    ros::Publisher obs_debug_pub_;
+    ros::Publisher obs_debug_pub_, rotor_halt_mask_pub_;
     ros::ServiceServer reload_policy_srv_;
     ros::ServiceServer reload_params_srv_;
     spinal::FourAxisCommand thrust_cmd_;
@@ -172,9 +176,9 @@ namespace aerial_robot_control
     std::deque<std::vector<float>> target_thrust_list_;
     std::vector<float> target_thrust_;
     std::vector<float> thrust_scale_;
-    int thrust_fault_id_ = 0;
     int thrust_target_delay_steps_ = 0;
     double thrust_scale_default_ = 0.0;
+    uint32_t rotor_halt_mask_ = 0;
     double gimbal_kp_;
     double gimbal_kd_;
     bool gimbal_effort_ctrl_ = false;

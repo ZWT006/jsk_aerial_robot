@@ -33,6 +33,7 @@ void AttitudeController::init(ros::NodeHandle* nh, StateEstimate* estimator)
   p_matrix_pseudo_inverse_inertia_sub_ =
       nh_->subscribe("p_matrix_pseudo_inverse_inertia", 1, &AttitudeController::pMatrixInertiaCallback, this);
   pwm_test_sub_ = nh_->subscribe("pwm_test", 1, &AttitudeController::pwmTestCallback, this);
+  rotor_halt_mask_sub_ = nh_->subscribe("spinal_fault_rotor_mask", 1, &AttitudeController::rotorHaltMaskCallback, this);
   att_control_srv_ =
       nh_->advertiseService("set_attitude_control", &AttitudeController::setAttitudeControlCallback, this);
   torque_allocation_matrix_inv_sub_ =
@@ -53,14 +54,15 @@ AttitudeController::AttitudeController()
   , four_axis_cmd_sub_("four_axes/command", &AttitudeController::fourAxisCommandCallback, this)
   , pwm_info_sub_("motor_info", &AttitudeController::pwmInfoCallback, this)
   , rpy_gain_sub_("rpy/gain", &AttitudeController::rpyGainCallback, this)
+  , pwm_test_sub_("pwm_test", &AttitudeController::pwmTestCallback, this)
+  , rotor_halt_mask_sub_("spinal_fault_rotor_mask", &AttitudeController::rotorHaltMaskCallback, this)
   , p_matrix_pseudo_inverse_inertia_sub_("p_matrix_pseudo_inverse_inertia", &AttitudeController::pMatrixInertiaCallback,
                                          this)
-  , pwm_test_sub_("pwm_test", &AttitudeController::pwmTestCallback, this)
-  , att_control_srv_("set_attitude_control", &AttitudeController::setAttitudeControlCallback, this)
   , torque_allocation_matrix_inv_sub_("torque_allocation_matrix_inv",
                                       &AttitudeController::torqueAllocationMatrixInvCallback, this)
-  , control_mode_srv_("set_control_mode", &AttitudeController::setControlModeCallback, this)
+  , att_control_srv_("set_attitude_control", &AttitudeController::setAttitudeControlCallback, this)
   , esc_telem_pub_("esc_telem", &esc_telem_msg_)
+  , control_mode_srv_("set_control_mode", &AttitudeController::setControlModeCallback, this)
 {
 }
 
@@ -97,6 +99,7 @@ void AttitudeController::init(TIM_HandleTypeDef* htim1, TIM_HandleTypeDef* htim2
   nh_->subscribe(pwm_info_sub_);
   nh_->subscribe(rpy_gain_sub_);
   nh_->subscribe(pwm_test_sub_);
+  nh_->subscribe(rotor_halt_mask_sub_);
   nh_->subscribe(p_matrix_pseudo_inverse_inertia_sub_);
   nh_->subscribe(torque_allocation_matrix_inv_sub_);
 
@@ -126,6 +129,7 @@ void AttitudeController::baseInit()
   force_landing_thrust_ = 0;
   pwm_pub_last_time_ = 0;
   pwm_test_flag_ = false;
+  rotor_halt_mask_ = 0;
 
   // voltage
   motor_info_.resize(0);
@@ -197,15 +201,19 @@ void AttitudeController::pwmsControl(void)
 #if NERVE_COMM
   for (int i = 0; i < motor_number_; i++)
   {
+    int32_t motor_pwm = 0;
 #if MOTOR_TEST
 
     if (i == (HAL_GetTick() / 2000) % motor_number_)
-      Spine::setMotorPwm(200, i);
+      motor_pwm = 200;
     else
-      Spine::setMotorPwm(0, i);
+      motor_pwm = 0;
 #else
-    Spine::setMotorPwm(target_pwm_[i] * 2000 - 1000, i);
+    motor_pwm = target_pwm_[i] * 2000 - 1000;
 #endif
+    if (isRotorHalted(i))
+      motor_pwm = 0;
+    Spine::setMotorPwm(motor_pwm, i);
   }
 #endif
 
@@ -227,6 +235,11 @@ void AttitudeController::pwmsControl(void)
     else
     {
       motor_v = (uint16_t)((target_pwm_[i] - 0.5) / 0.5 * DSHOT_RANGE + DSHOT_MIN_THROTTLE);
+    }
+
+    if (isRotorHalted(i))
+    {
+      motor_v = DSHOT_DISARM_THROTTLE;
     }
 
     motor_value[i] = motor_v;
@@ -501,6 +514,7 @@ void AttitudeController::reset(void)
 
   max_yaw_term_index_ = -1;
   integrate_flag_ = false;
+  rotor_halt_mask_ = 0;
 
   /* failsafe */
   failsafe_ = false;
@@ -773,6 +787,11 @@ void AttitudeController::pwmTestCallback(const std_msgs::Float32& pwm_msg)
 {
   pwm_test_flag_ = true;
   pwm_test_value_ = pwm_msg.data;  // 2000ms
+}
+
+void AttitudeController::rotorHaltMaskCallback(const std_msgs::UInt32& mask_msg)
+{
+  rotor_halt_mask_ = mask_msg.data;
 }
 
 void AttitudeController::setStartControlFlag(bool start_control_flag)

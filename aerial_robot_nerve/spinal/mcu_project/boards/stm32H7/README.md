@@ -320,6 +320,58 @@ sudo udevadm trigger
 
 **Solution**: Execute `monitor reset init` followed by `continue` in the Debug Console, or use Launch mode which resets automatically.
 
+### Q6: STM32CubeIDE hangs at the splash/progress bar after selecting a workspace
+
+**Symptoms**:
+- The progress bar reaches the last part and then stops.
+- The terminal repeatedly prints:
+  ```text
+  1 : Invalid condition id : UX_CORESTACK_Condition cause : null
+  ```
+
+**Likely cause**: This is usually a CubeIDE/CubeMX workspace or plug-in cache issue, not a firmware source-code issue. The `UX_CORESTACK_Condition` message comes from CubeMX parsing third-party PDSC packs such as Azure RTOS/USBX. It can appear together with stale workspace metadata under `.metadata` or incompatible third-party pack cache under `~/.stm32cubemx/thirdparties`.
+
+**Recommended recovery**:
+```bash
+# Close STM32CubeIDE first.
+
+# Prefer a clean workspace that is separate from the STM32Cube firmware repository.
+mkdir -p ~/STM32CubeIDE/workspace_1.18.0
+stm32cubeide \
+  -clean -clearPersistedState \
+  -data ~/STM32CubeIDE/workspace_1.18.0
+```
+
+If `stm32cubeide` is not in your `PATH`, use the full path instead:
+```bash
+~/st/stm32cubeide_1.18.0/stm32cubeide_wayland \
+  -clean -clearPersistedState \
+  -data ~/STM32CubeIDE/workspace_1.18.0
+```
+
+Example shell alias:
+```bash
+alias stm32cubeide='LD_LIBRARY_PATH=$HOME/drivers/libncurses5/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH /home/wentao/st/stm32cubeide_1.18.0/stm32cubeide_wayland'
+```
+
+The `LD_LIBRARY_PATH` part is mainly needed by the bundled `arm-none-eabi-gdb`; it is not expected to fix the workspace splash-screen hang by itself.
+
+Then import the project again:
+1. `File` -> `Import` -> `General` -> `Existing Projects into Workspace`
+2. Select directory: `<this-repo>/boards/stm32H7/STM32CubeIDE`
+3. Keep **Copy projects into workspace** unchecked
+
+If it still hangs, back up and regenerate only the metadata/cache, then restart CubeIDE:
+```bash
+# Replace OLD_WORKSPACE with the workspace path you selected in CubeIDE.
+mv OLD_WORKSPACE/.metadata OLD_WORKSPACE/.metadata.bak.$(date +%Y%m%d-%H%M%S)
+
+# If CubeMX third-party pack loading is still the last log entry:
+mv ~/.stm32cubemx/thirdparties ~/.stm32cubemx/thirdparties.bak.$(date +%Y%m%d-%H%M%S)
+```
+
+These commands do not delete project sources; they only make CubeIDE recreate workspace metadata and CubeMX third-party pack indexes.
+
 ---
 
 ## Project Directory Structure

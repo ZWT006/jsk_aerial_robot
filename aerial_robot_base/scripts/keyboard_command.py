@@ -2,10 +2,11 @@
 
 from __future__ import print_function # for print function in python2
 import sys, select, termios, tty
+import threading
 
 import rospy
 from std_msgs.msg import Empty
-from std_msgs.msg import Int8
+from std_msgs.msg import UInt32, Int8
 from std_msgs.msg import Float32
 # from aerial_robot_msgs.msg import FlightNav
 import rosgraph
@@ -42,8 +43,40 @@ def getKey():
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
     return key
 
-def printMsg(msg, msg_len = 60):
-    print(msg.ljust(msg_len) + "\r", end="")
+status_lock = threading.Lock()
+status_initialized = False
+command_status_msg = ""
+battery_status_msg = ""
+
+def printMsg(msg, msg_len = 60, line = 0):
+    global status_initialized, command_status_msg, battery_status_msg
+    with status_lock:
+        if line == 0:
+            command_status_msg = msg
+        else:
+            battery_status_msg = msg
+
+        if status_initialized:
+            sys.stdout.write("\033[1F")
+        else:
+            sys.stdout.write("\033[?25l")
+            status_initialized = True
+
+        sys.stdout.write("\r" + command_status_msg.ljust(msg_len) + "\033[K\n")
+        sys.stdout.write("\r" + battery_status_msg.ljust(msg_len) + "\033[K")
+        sys.stdout.flush()
+
+def faultMaskString(mask, rotor_num):
+    mask_width = max(1, min(int(rotor_num), 32))
+    valid_mask = (1 << mask_width) - 1
+    return "{0:0{1}b}".format(mask & valid_mask, mask_width)
+
+def faultValidMask(rotor_num):
+    mask_width = max(1, min(int(rotor_num), 32))
+    return (1 << mask_width) - 1
+
+def faultRotorCount(mask, rotor_num):
+    return bin(mask & faultValidMask(rotor_num)).count("1")
 
 # Global variables for battery monitoring
 low_voltage = 22.0  # Default value
@@ -51,11 +84,11 @@ low_voltage = 22.0  # Default value
 def battery_voltage_callback(msg):
     global low_voltage
     if msg.data < 19.2:
-        printMsg("\033[91m Alert!!! Unsafe Battery Voltage : {:.2f}V\033[0m".format(msg.data))
+        printMsg("\033[91m Alert!!! Unsafe Battery Voltage : {:.2f}V\033[0m".format(msg.data), line = 1)
     elif msg.data < low_voltage:
-        printMsg("\033[93m Warrning! Low Battery Voltage : {:.2f}V\033[0m".format(msg.data))
+        printMsg("\033[93m Warrning! Low Battery Voltage : {:.2f}V\033[0m".format(msg.data), line = 1)
     else:
-        printMsg("\033[92m ======= Battery Voltage: {:.2f}V =======\033[0m".format(msg.data))
+        printMsg("\033[92m ======= Battery Voltage: {:.2f}V =======\033[0m".format(msg.data), line = 1)
 
 if __name__=="__main__":
         settings = termios.tcgetattr(sys.stdin)
@@ -81,7 +114,8 @@ if __name__=="__main__":
         start_pub = rospy.Publisher(ns + '/start', Empty, queue_size=1)
         takeoff_pub = rospy.Publisher(ns + '/takeoff', Empty, queue_size=1)
         force_landing_pub = rospy.Publisher(ns + '/force_landing', Empty, queue_size=1)
-        fault_pub = rospy.Publisher(ns + '/fault', Int8, queue_size=1)
+        agentFaultRotor_pub = rospy.Publisher(ns + '/agentFaultRotor', UInt32, queue_size=1)
+        spinalFaultRotor_pub = rospy.Publisher(robot_ns + '/spinal_fault_rotor_mask', UInt32, queue_size=1)
         brake_pub = rospy.Publisher(ns + '/brake', Empty, queue_size=1)
         unbrake_pub = rospy.Publisher(ns + '/unbrake', Empty, queue_size=1)
         ctrl_mode_pub = rospy.Publisher(ns + '/ctrl_mode', Int8, queue_size=1)
@@ -90,7 +124,11 @@ if __name__=="__main__":
         xy_vel   = rospy.get_param("xy_vel", 0.2)
         z_vel    = rospy.get_param("z_vel", 0.2)
         yaw_vel  = rospy.get_param("yaw_vel", 0.2)
-        fault = Int8()
+        agentFault = False
+        spinalFault = False
+        rotorNum = rospy.get_param("~rotor_num", 4)
+        maxFaultNum = 2
+        fault = UInt32()
         
         # Battery voltage monitoring
         low_voltage = rospy.get_param("~low_voltage", 22.0)
@@ -129,10 +167,53 @@ if __name__=="__main__":
                 # if key == 'B':
                 #         unbrake_pub.publish(Empty())
                 #         msg = "===== send unbrake command ====="
-                if key >= '0' and key <= '9':
-                        fault.data = int(key)
-                        fault_pub.publish(fault)
-                        msg = "=====\033[93m send fault command: \033[91m{}\033[0m =====".format(fault.data)
+                if key == '0':
+                        fault.data = 0
+                        fault_mask_str = faultMaskString(fault.data, rotorNum)
+                        if agentFault and not spinalFault:
+                                agentFaultRotor_pub.publish(fault)
+                                agentFault = False
+                                msg = "=====\033[93m send agent reset fault command: \033[91m{}\033[0m =====".format(fault_mask_str)
+                        if spinalFault and agentFault:
+                                spinalFaultRotor_pub.publish(fault)
+                                spinalFault = False
+                                msg = "=====\033[93m send spinal reset fault command: \033[91m{}\033[0m =====".format(fault_mask_str)
+                if key >= '1' and key <= '4':
+                        new_fault_mask = 1 << (int(key) - 1)
+                        next_fault_data = (fault.data | new_fault_mask) & faultValidMask(rotorNum)
+                        if faultRotorCount(next_fault_data, rotorNum) > maxFaultNum:
+                                msg = "=====\033[91m error: fault mask {} exceeds max fault num {}\033[0m =====".format(
+                                        faultMaskString(next_fault_data, rotorNum), maxFaultNum)
+                        else:
+                                fault.data = next_fault_data
+                                agentFaultRotor_pub.publish(fault)
+                                agentFault = True
+                                spinalFaultRotor_pub.publish(fault)
+                                spinalFault = True
+                                fault_mask_str = faultMaskString(fault.data, rotorNum)
+                                msg = "=====\033[93m send fault command: \033[91m{}\033[93m (+{})\033[0m =====".format(
+                                        fault_mask_str, faultMaskString(new_fault_mask, rotorNum))
+                if key >= '5' and key <= '8':
+                        combined_fault_masks = {
+                                '5': 0b1100,
+                                '6': 0b0110,
+                                '7': 0b0011,
+                                '8': 0b1001,
+                        }
+                        new_fault_mask = combined_fault_masks[key]
+                        next_fault_data = (fault.data | new_fault_mask) & faultValidMask(rotorNum)
+                        if faultRotorCount(next_fault_data, rotorNum) > maxFaultNum:
+                                msg = "=====\033[91m error: fault mask {} exceeds max fault num {}\033[0m =====".format(
+                                        faultMaskString(next_fault_data, rotorNum), maxFaultNum)
+                        else:
+                                fault.data = next_fault_data
+                                agentFaultRotor_pub.publish(fault)
+                                agentFault = True
+                                spinalFaultRotor_pub.publish(fault)
+                                spinalFault = True
+                                fault_mask_str = faultMaskString(fault.data, rotorNum)
+                                msg = "=====\033[93m send fault command: \033[91m{}\033[93m (+{})\033[0m =====".format(
+                                        fault_mask_str, faultMaskString(new_fault_mask, rotorNum))
                 # if key == 'x':
                 #         motion_start_pub.publish(Empty())
                 #         msg = "===== send task-start command ====="
@@ -186,5 +267,8 @@ if __name__=="__main__":
         except Exception as e:
                 print(repr(e))
         finally:
+                sys.stdout.write("\033[?25h")
+                if status_initialized:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
-

@@ -4,6 +4,7 @@
 
 # files for IDE project
 */STM32CubeIDE/Debug
+*/STM32CubeIDE/.metadata
 */STM32CubeIDE/*.launch
 
 # libraries

@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
         message_generation
         pluginlib
         roscpp
+        std_msgs
         std_srvs
 )
 
@@ -40,7 +41,7 @@ generate_messages(DEPENDENCIES std_msgs)
 
 catkin_package(
   CATKIN_DEPENDS aerial_robot_control aerial_robot_estimation aerial_robot_model aerial_robot_msgs
-                 message_runtime pluginlib roscpp spinal std_srvs
+                 message_runtime pluginlib roscpp spinal std_msgs std_srvs
 )
 
 ###########
