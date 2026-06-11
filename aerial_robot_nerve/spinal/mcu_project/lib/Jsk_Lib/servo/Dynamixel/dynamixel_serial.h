@@ -110,6 +110,7 @@
 #define COMMAND_FACTORY_RESET           0x06
 #define COMMAND_REBOOT					0x08
 #define COMMAND_SYNC_READ				0x82
+#define COMMAND_FAST_SYNC_READ			0x8A
 #define COMMAND_SYNC_WRITE          	0x83
 #define COMMAND_BULK_READ				0x92
 #define COMMAND_BULK_WRITE				0x93
@@ -157,7 +158,13 @@
 #define EXCEPTION_ADDITIONAL_BYTE 0xFD
 
 #define INSTRUCTION_PACKET_SIZE 64
-#define STATUS_PACKET_SIZE 		64
+#define STATUS_PACKET_SIZE 		128
+
+// 0: default sync read
+// 1: fast sync read for present position, velocity, current, moving, and hardware error status
+#ifndef DYNAMIXEL_USE_FAST_SYNC_READ
+#define DYNAMIXEL_USE_FAST_SYNC_READ 1
+#endif
 
 #define MAX_SERVO_NUM			8
 #define PING_TRIAL_NUM			100
@@ -416,12 +423,14 @@ private:
   // These mirror the SDK packet handler flow, but are specialized for this MCU.
   void transmitInstructionPacket(uint8_t id, uint16_t len, uint8_t instruction, uint8_t* parameters);
   int8_t readStatusPacket(uint8_t status_packet_instruction);
+  int8_t readFastSyncStatusPacket(uint8_t status_packet_instruction);
 
   void cmdPing(uint8_t id);
   void cmdReboot(uint8_t id);
   void cmdRead(uint8_t id, uint16_t address, uint16_t byte_size);
   void cmdWrite(uint8_t id, uint16_t address, uint8_t* param, int param_len);
   void cmdSyncRead(uint16_t address, uint16_t byte_size, bool send_all);
+  void cmdFastSyncRead(uint16_t address, uint16_t byte_size, bool send_all);
   void cmdSyncWrite(uint16_t address, uint8_t* param, int param_len);
 
   inline void cmdReadCurrentLimit(uint8_t servo_index);
@@ -441,9 +450,13 @@ private:
   inline void cmdWriteStatusReturnLevel(uint8_t id, uint8_t set);
   inline void cmdWriteTorqueEnable(uint8_t servo_index);
   inline void cmdSyncReadCurrentLimit(bool send_all = true);
+  inline void cmdFastSyncReadHardwareErrorStatus(bool send_all = true);
   inline void cmdSyncReadHardwareErrorStatus(bool send_all = true);
   inline void cmdSyncReadHomingOffset(bool send_all = true);
+  inline void cmdFastSyncReadMoving(bool send_all = true);
   inline void cmdSyncReadMoving(bool send_all = true);
+  inline void cmdFastSyncReadPresentCurVelPos(bool send_all = true);
+  inline void cmdFastSyncReadPresentTemperature(bool send_all = true);
   inline void cmdSyncReadPositionGains(bool send_all = true);
   inline void cmdSyncReadPresentCurVelPos(bool send_all = true);
   inline void cmdSyncReadPresentCurrent(bool send_all = true);
