@@ -6,6 +6,7 @@
 */STM32CubeIDE/Debug
 */STM32CubeIDE/.metadata
 */STM32CubeIDE/*.launch
+*/STM32CubeIDE/Release
 
 # libraries
 */ros_lib

@@ -124,8 +124,11 @@
 #define LED_BYTE_LEN					1
 #define STATUS_RETURN_LEVEL_BYTE_LEN	1
 #define GOAL_POSITION_BYTE_LEN			4
+#define GOAL_VELOCITY_BYTE_LEN			4
+#define GOAL_CURRENT_BYTE_LEN			2
 #define PRESENT_POSITION_BYTE_LEN		4
 #define PRESENT_CURRENT_BYTE_LEN		2
+#define PRESENT_CUR_VEL_POS_BYTE_LEN	10
 #define PRESENT_TEMPERATURE_BYTE_LEN	1
 #define MOVING_BYTE_LEN 				1
 #define HARDWARE_ERROR_STATUS_BYTE_LEN	1
@@ -206,14 +209,15 @@
 #define INST_SET_POSITION_GAINS			13
 #define INST_SET_PROFILE_VELOCITY		14
 #define INST_SET_TORQUE					15
+#define INST_GET_CUR_VEL_POS        16
 
 //instruction frequency: 0 means no process
-#define SET_POS_DU 10 //[msec], 10ms => 100Hz
+#define SET_POS_DU 5 //[msec], 10ms => 100Hz
 #define SET_POS_OFFSET 0 // offset from SET_POS
-#define GET_POS_DU 10 //[msec], 10ms => 100Hz
-#define GET_POS_OFFSET 10 //offset from GET_POS
+#define GET_POS_DU 5 //[msec], 10ms => 100Hz
+#define GET_POS_OFFSET 2 //offset from GET_POS
 #define GET_LOAD_DU 200 //[msec], 200ms => 5Hz
-#define GET_LOAD_OFFSET 0 //offset from GET_LOAD
+#define GET_LOAD_OFFSET 10 //offset from GET_LOAD
 #define GET_TEMP_DU 200 //[msec], 200ms => 5Hz
 #define GET_TEMP_OFFSET 50 //offset from GET_TEMP
 #define GET_MOVE_DU 200 //[msec], 200ms => 5Hz
@@ -295,12 +299,15 @@ public:
 
   uint8_t id_;
   int32_t present_position_;
+  int32_t present_velocity;
+  int16_t present_current_;
   int32_t goal_position_;
+  int32_t goal_velocity_;
+  int16_t goal_current_;
   int32_t calib_value_;
   int32_t homing_offset_;
   int32_t internal_offset_;
   uint8_t present_temp_;
-  int16_t present_current_;
   uint8_t moving_;
   uint8_t hardware_error_status_;
   uint16_t p_gain_, i_gain_, d_gain_;
@@ -332,6 +339,12 @@ public:
   }
   int32_t getGoalPosition() const{
     return goal_position_;
+  }
+  int32_t getGoalVelocity() const{
+    return goal_velocity_;
+  }
+  int16_t getGoalCurrent() const{
+    return goal_current_;
   }
   float getAngleScale() const{
     return angle_scale_;
@@ -416,6 +429,7 @@ private:
   inline void cmdReadHomingOffset(uint8_t servo_index);
   inline void cmdReadMoving(uint8_t servo_index);
   inline void cmdReadPositionGains(uint8_t servo_index);
+  inline void cmdReadPresentCurVelPos(uint8_t servo_index);
   inline void cmdReadPresentCurrent(uint8_t servo_index);
   inline void cmdReadPresentPosition(uint8_t servo_index);
   inline void cmdReadPresentTemperature(uint8_t servo_index);
@@ -431,11 +445,14 @@ private:
   inline void cmdSyncReadHomingOffset(bool send_all = true);
   inline void cmdSyncReadMoving(bool send_all = true);
   inline void cmdSyncReadPositionGains(bool send_all = true);
+  inline void cmdSyncReadPresentCurVelPos(bool send_all = true);
   inline void cmdSyncReadPresentCurrent(bool send_all = true);
   inline void cmdSyncReadPresentPosition(bool send_all = true);
   inline void cmdSyncReadPresentTemperature(bool send_all = true);
   inline void cmdSyncReadProfileVelocity(bool send_all = true);
   inline void cmdSyncWriteGoalPosition();
+  inline void cmdSyncWriteGoalVelocity();
+  inline void cmdSyncWriteGoalCurrent();
   inline void cmdSyncWriteLed();
   inline void cmdSyncWritePositionGains();
   inline void cmdSyncWriteProfileVelocity();
