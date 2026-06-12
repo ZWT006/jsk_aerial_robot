@@ -13,6 +13,7 @@ This document describes how to build firmware using **STM32CubeIDE** and debug i
 - [5. Build Firmware with CubeIDE](#5-build-firmware-with-cubeide)
 - [6. Debug with VS Code](#6-debug-with-vs-code)
 - [7. Debug Features](#7-debug-features)
+- [8. Serial Close-loop Communication](#8-serial-cummunication)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -276,6 +277,41 @@ print imu_
 # List threads / FreeRTOS tasks
 info threads
 ```
+## 8. Serial Communication
+
+### Change serial bitrate
+In the `main.c`, define the communication bitrate, default is `921600`, but may fluctuate with servo `200Hz` feedback, so we can change it to `2000000`. Make sure to update the `sensors.yaml` to change the corresponding serial bitrate. 
+```c++
+huart1.Init.BaudRate = 2000000; // serial bitrate configuration
+```
+```xml
+<include file="$(find spinal)/launch/bridge.launch" >
+  <arg name="mode" value="serial" />
+  <arg name="serial_port" value="/dev/flight_controller" />
+  <arg name="serial_baud" value="2000000" />
+</include>
+```
+
+### Change servo feedback rate
+In the `main.c`, define servo uart bitrate, also `huart3` is used for servo communication.
+```c++
+osTimerStart(ServoTimerHandle, 1);  // Servo Task period
+huart3.Init.BaudRate = 1000000; // servo serial bitrate configuration
+```
+In the `dynamixel_serial.h` define the servo feedback rate. Make sure `GET_POS_OFFSET != SET_POS_OFFSET` and `GET_POS_OFFSET < GET_POS_DU`.
+```c++
+#define SET_POS_DU 5 //[msec],
+#define SET_POS_OFFSET 0 // offset from SET_POS
+#define GET_POS_DU 5 //[msec],
+#define GET_POS_OFFSET 2 //offset from GET_POS
+```
+The [`FastSyncRead`](https://emanual.robotis.com/docs/en/dxl/protocol2/#fast-sync-read-0x8a) function is defined in `dynamixel_serial.h` by
+```c++
+#ifndef DYNAMIXEL_USE_FAST_SYNC_READ
+#define DYNAMIXEL_USE_FAST_SYNC_READ 1 // 0: default SyncRead, 1: FastSyncRead
+#endif
+```
+This function saves bandwidth and speeds up UART communication.
 
 ---
 
