@@ -12,23 +12,25 @@
   <node pkg="beetle_omni" type="gimbal_response" name="gimbal_response" output="screen" >
     
     <param name="save_path" value="$(find beetle_omni)/data"/>
-    <param name="enable_save" value="false"/>
+    <param name="enable_save" value="False"/>
     <param name="control_freq" value="100"/>
     <param name="duration" value="100"/>
     <param name="default_gimbal" value="0.0"/>
-    <param name="gimbal_range" value="0.0"/>
-    <param name="cmd_period" value="4.0"/>
+    <param name="gimbal_range" value="3.5"/>
+    <param name="cmd_period" value="0.2"/> <!-- perioded sweep signal -->
     
-    <param name="effort_ctrl" value="false"/>
+    <param name="effort_ctrl" value="False"/>
     <!-- <param name="kp" value="0.285"/>
     <param name="kd" value="0.019"/> -->
-    <param name="kp" value="0.344964875"/>
-    <param name="kd" value="0.0094725"/>
+    <!-- <param name="kp" value="0.344964875"/>
+    <param name="kd" value="0.0094725"/> -->
+    <param name="kp" value="0.45"/>
+    <param name="kd" value="0.008"/>
     
-    <param name="sweep_mode" value="False"/>
-    <param name="period_scale" value="4.0"/>
+    <param name="sweep_mode" value="True"/>
+    <param name="period_scale" value="10"/> <!-- 4.0 => 4x => 4.0s period -->
 
-    <param name="constrained_chirp_mode" value="True"/>
+    <param name="constrained_chirp_mode" value="False"/>
     <param name="chirp_sweep_type" value="Linear"/>
     <param name="f_min" value="0.1"/>        <!-- 0.1 Hz -->
     <param name="f_max" value="5.0"/>        <!-- 5 Hz -->

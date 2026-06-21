@@ -20,8 +20,10 @@
   <build_depend>aerial_robot_msgs</build_depend>
   <build_depend>pluginlib</build_depend>
   <build_depend>diagnostic_msgs</build_depend>
+  <build_depend>geometry_msgs</build_depend>
   <build_depend>roscpp</build_depend>
   <build_depend>spinal</build_depend>
+  <build_depend>takasako_sps</build_depend>
 
   <exec_depend>message_runtime</exec_depend>
   <exec_depend>std_msgs</exec_depend>
@@ -35,7 +37,9 @@
   <exec_depend>roscpp</exec_depend>
   <exec_depend>pluginlib</exec_depend>
   <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>spinal</exec_depend>
+  <exec_depend>takasako_sps</exec_depend>
 
   <test_depend>rostest</test_depend>
 

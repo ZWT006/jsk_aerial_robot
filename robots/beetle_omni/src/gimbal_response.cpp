@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <fstream>
+#include <algorithm>
 
 // replace with actual package message header if different
 #include <spinal/FourAxisCommand.h>
@@ -190,6 +191,8 @@ public:
 
             gimbal_data_.push_back(std::vector<float>());
             gimbal_data_.back().push_back(static_cast<float>(timestep));
+            gimbal_data_.back().push_back(gimbal_msg_time_.toNSec() * 1e-6f);
+            gimbal_data_.back().push_back(receive_msg_time_.toNSec() * 1e-6f);
             {
                 std::lock_guard<std::mutex> lk(data_mutex_);
                 for (size_t i = 0; i < num; ++i) {
@@ -435,9 +438,11 @@ public:
         return wave;
     }
 
-    // Chirp sine wave whose amplitude is modulated by a triangle envelope.
-    // - period sweeps linearly from period_min to period_max over the active window
-    // - envelope triangle period = 16 * current_period  (abs-folded → two amplitude bumps)
+    // Symmetric sweep sine wave.
+    // - amplitude and period share the same sweep progress
+    // - amplitude: low -> high -> low
+    // - period:    short -> long -> short  (frequency: high -> low -> high)
+    // - one complete low-high-low sweep spans the full active window
     // - 1 s silence (return 0 = default) is prepended and appended for easy trimming
     std::vector<float> sweepSinTriangleWave(double t, double period_min, double period_max,
                                              double duration, float amplitude) {
@@ -446,24 +451,32 @@ public:
         const double active_dur = duration - 2.0 * pad;
         // padding windows → return default (0)
         if (t < pad || t > duration - pad || active_dur <= 0.0) return wave;
+        const double t_a = t - pad;                         // time within active segment [0, active_dur]
+        const double alpha = t_a / active_dur;              // [0, 1]
+        const double sweep_progress = 1.0 - std::abs(2.0 * alpha - 1.0);  // 0 -> 1 -> 0
+        const double fast_period = std::max(1e-6, std::min(period_min, period_max));
+        const double slow_period = std::max(fast_period, std::max(period_min, period_max));
+        const double delta_period = slow_period - fast_period;
+        const double half_dur = 0.5 * active_dur;
 
-        double t_a = t - pad;                               // time within active segment [0, active_dur]
-        double alpha = t_a / active_dur;                    // [0, 1]
-        double cur_period = period_min + (period_max - period_min) * alpha;
+        // Instantaneous period is tied to the same symmetric progress as the amplitude.
+        const double cur_period = fast_period + delta_period * sweep_progress;
 
-        // Chirp phase: φ = 2π ∫₀^{t_a} 1/period(s) ds
-        // period(s) = p0 + (p1-p0)*s/T  →  φ = 2π·T/(p1-p0)·ln(cur_period/p0)
+        // Chirp phase: integrate 1 / period(t) over the piecewise-linear short->long->short sweep.
         double phi;
-        if (std::abs(period_max - period_min) < 1e-9) {
-            phi = 2.0 * M_PI * t_a / period_min;
+        if (delta_period < 1e-9 || half_dur <= 1e-9) {
+            phi = 2.0 * M_PI * t_a / fast_period;
         } else {
-            phi = 2.0 * M_PI * active_dur / (period_max - period_min)
-                  * std::log(cur_period / period_min);
+            const double slope = delta_period / half_dur;  // 2 * delta_period / active_dur
+            const double phi_half = 2.0 * M_PI / slope * std::log(slow_period / fast_period);
+            if (t_a <= half_dur) {
+                phi = 2.0 * M_PI / slope * std::log(cur_period / fast_period);
+            } else {
+                phi = phi_half + 2.0 * M_PI / slope * std::log(slow_period / cur_period);
+            }
         }
 
-        // Amplitude envelope: |triangleWave| with period = 16 * cur_period
-        float env = std::abs(triangleWave(t_a, 16.0 * cur_period, amplitude)[0]);
-
+        const float env = static_cast<float>(amplitude * std::max(0.0, sweep_progress));
         float val = static_cast<float>(env * std::sin(phi));
         for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
         return wave;
@@ -542,6 +555,8 @@ private:
     std::vector<std::vector<float>> gimbal_data_; // [step][data]
     std::vector<float> gimbal_pos_ = std::vector<float>(gimbal_size_, 0.0f);
     std::vector<float> gimbal_vel_ = std::vector<float>(gimbal_size_, 0.0f);
+    ros::Time gimbal_msg_time_;
+    ros::Time receive_msg_time_;
     std::vector<float> last_gimbal_pos_ = std::vector<float>(gimbal_size_, 0.0f);
     std::vector<float> gimbal_default_pos_;
     // publishers data
@@ -555,6 +570,8 @@ private:
     void _gimbal_callback(const sensor_msgs::JointState::ConstPtr& msg) {
         std::lock_guard<std::mutex> lk(data_mutex_);
         gimbal_msg_ = *msg;
+        gimbal_msg_time_ = msg->header.stamp;
+        receive_msg_time_ = ros::Time::now();
         // copy positions safely
         for (size_t i = 0; i < std::min<size_t>(msg->position.size(), gimbal_pos_.size()); ++i) {
             gimbal_pos_[i] = msg->position[i];
@@ -631,6 +648,35 @@ int main(int argc, char** argv) {
             " v_max=%.2f rad/s, a_max=%.2f rad/s^2\n"
             " sweep_type=%s",
             f_min, f_max, v_max_chirp, a_max_chirp, chirp_sweep_type.c_str()
+        );
+    }
+    if (sweep_mode && !constrained_chirp_mode) {
+        const double pad = 1.0;
+        const double active_dur = std::max(0.0, duration - 2.0 * pad);
+        const double fast_period = std::max(1e-6, std::min(cmd_period, period_scale * cmd_period));
+        const double slow_period = std::max(fast_period, std::max(cmd_period, period_scale * cmd_period));
+        const double high_freq = 1.0 / fast_period;
+        const double low_freq = 1.0 / slow_period;
+        double estimated_cycles = 0.0;
+        if (active_dur > 0.0) {
+            if (std::abs(slow_period - fast_period) < 1e-9) {
+                estimated_cycles = active_dur / fast_period;
+            } else {
+                estimated_cycles = active_dur * std::log(slow_period / fast_period) / (slow_period - fast_period);
+            }
+        }
+
+        ROS_INFO("Symmetric Sweep Config:\n"
+            " one full low-high-low sweep = %.2f s active time\n"
+            " total trajectory (with 1 s pad on each side) = %.2f s\n"
+            " period short->long->short = %.3f -> %.3f -> %.3f s\n"
+            " frequency high->low->high = %.3f -> %.3f -> %.3f Hz\n"
+            " estimated sine cycles in one full sweep = %.2f",
+            active_dur,
+            duration,
+            fast_period, slow_period, fast_period,
+            high_freq, low_freq, high_freq,
+            estimated_cycles
         );
     }
 

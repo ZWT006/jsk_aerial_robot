@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<launch>
+  <!--
+    Open-loop rotor thrust sweep response test.
+
+    Make sure no other controller is publishing to /beetle_omni/four_axes/command
+    while this node is running.
+  -->
+
+  <!-- Optional hardware helpers, mirrored from motor_test. -->
+  <arg name="launch_force_sensor" default="false" />
+  <arg name="launch_power_node" default="false" />
+  <arg name="force_sensor" default="CFS034CA301U" />
+
+  <arg name="enable_save" default="true" />
+  <arg name="control_freq" default="100" />
+  <arg name="duration" default="100" />
+  <arg name="default_thrust" default="7.0" />
+  <arg name="thrust_range" default="3.0" />
+  <arg name="thrust_min" default="0.0" />
+  <arg name="thrust_max" default="20.0" />
+  <arg name="disabled_thrust" default="0.0" />
+  <arg name="shutdown_thrust" default="0.0" />
+  <arg name="cmd_period" default="1.0" />
+  <arg name="period_scale" default="4.0" />
+
+  <arg name="enable_rotor_0" default="true" />
+  <arg name="enable_rotor_1" default="true" />
+  <arg name="enable_rotor_2" default="true" />
+  <arg name="enable_rotor_3" default="true" />
+
+  <arg name="enable_force_sensor" default="true" />
+  <arg name="enable_force_sensor_calib" default="false" />
+  <arg name="enable_power_info" default="true" />
+  <arg name="enable_power_on_cmd" default="true" />
+  <arg name="enable_esc_telem" default="true" />
+
+  <node if="$(arg launch_power_node)"
+        name="power_node" pkg="takasako_sps" type="scpi_tcp_client_node" output="screen" />
+
+  <node if="$(arg launch_force_sensor)"
+        name="forces_node" pkg="cfs_sensor" type="cfs_node" output="screen">
+    <rosparam file="$(find cfs_sensor)/config/$(arg force_sensor).yaml" command="load" />
+  </node>
+
+  <node pkg="beetle_omni" type="rotor_response" name="rotor_response" output="screen">
+    <param name="save_path" value="$(find beetle_omni)/data" />
+    <param name="enable_save" value="$(arg enable_save)" />
+    <param name="control_freq" value="$(arg control_freq)" />
+    <param name="duration" value="$(arg duration)" />
+
+    <!-- Sweep: active window is duration - 2s because the node keeps 1s padding at both ends. -->
+    <param name="default_thrust" value="$(arg default_thrust)" />
+    <param name="thrust_range" value="$(arg thrust_range)" />
+    <param name="thrust_min" value="$(arg thrust_min)" />
+    <param name="thrust_max" value="$(arg thrust_max)" />
+    <param name="disabled_thrust" value="$(arg disabled_thrust)" />
+    <param name="shutdown_thrust" value="$(arg shutdown_thrust)" />
+    <param name="cmd_period" value="$(arg cmd_period)" />
+    <param name="period_scale" value="$(arg period_scale)" />
+
+    <!-- Only enabled rotors are commanded with the sweep and written to csv. -->
+    <param name="enable_rotor_0" value="$(arg enable_rotor_0)" />
+    <param name="enable_rotor_1" value="$(arg enable_rotor_1)" />
+    <param name="enable_rotor_2" value="$(arg enable_rotor_2)" />
+    <param name="enable_rotor_3" value="$(arg enable_rotor_3)" />
+
+    <param name="thrust_pub_name" value="/beetle_omni/four_axes/command" />
+    <param name="thrust_debug_pub_name" value="/beetle_omni/four_axes/command_debug" />
+
+    <!-- Force sensor / power / DShot telemetry interfaces. -->
+    <param name="enable_force_sensor" value="$(arg enable_force_sensor)" />
+    <param name="enable_force_sensor_calib" value="$(arg enable_force_sensor_calib)" />
+    <param name="force_sensor_sub_name" value="/cfs/data" />
+    <param name="force_sensor_calib_service" value="/cfs_sensor_calib" />
+    <param name="enable_power_info" value="$(arg enable_power_info)" />
+    <param name="enable_power_on_cmd" value="$(arg enable_power_on_cmd)" />
+    <param name="power_info_sub_name" value="/power_info" />
+    <param name="enable_esc_telem" value="$(arg enable_esc_telem)" />
+    <param name="esc_telem_sub_name" value="/beetle_omni/esc_telem" />
+  </node>
+</launch>

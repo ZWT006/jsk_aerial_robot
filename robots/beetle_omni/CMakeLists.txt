@@ -16,11 +16,14 @@ find_package(catkin REQUIRED COMPONENTS
         aerial_robot_model
         aerial_robot_msgs
         diagnostic_msgs
+        geometry_msgs
         message_generation
         pluginlib
         roscpp
+        spinal
         std_msgs
         std_srvs
+        takasako_sps
 )
 
 # Use $ENV{HOME} rather than '~' to get a portable absolute path.
@@ -41,7 +44,7 @@ generate_messages(DEPENDENCIES std_msgs)
 
 catkin_package(
   CATKIN_DEPENDS aerial_robot_control aerial_robot_estimation aerial_robot_model aerial_robot_msgs
-                 message_runtime pluginlib roscpp spinal std_msgs std_srvs
+                 geometry_msgs message_runtime pluginlib roscpp spinal std_msgs std_srvs takasako_sps
 )
 
 ###########
@@ -67,6 +70,14 @@ target_link_libraries(beetle_deploy
 add_executable(gimbal_response src/gimbal_response.cpp)
 target_include_directories(gimbal_response PRIVATE ${catkin_INCLUDE_DIRS})
 target_link_libraries(gimbal_response ${catkin_LIBRARIES})
+
+add_executable(rotor_response src/rotor_response.cpp)
+add_dependencies(rotor_response
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_include_directories(rotor_response PRIVATE ${catkin_INCLUDE_DIRS})
+target_link_libraries(rotor_response ${catkin_LIBRARIES})
 
 add_library(beetle_pose_rlagent src/beetle_pose_rlagent.cpp)
 add_dependencies(beetle_pose_rlagent
