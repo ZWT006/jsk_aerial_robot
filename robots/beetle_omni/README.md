@@ -162,6 +162,131 @@ For using wrench sensor, call the following command in hovering to calibrate the
 rosservice call /cfs_sensor_calib "{}"
 ```
 
+## Rotor Calibration
+
+Beetle rotor calibration uses the generic `motor_test` package to measure the motor/propeller thrust curve, then stores the Beetle-specific thrust-to-PWM mapping in `robots/beetle_omni/config/MotorInfoDShot.yaml`.
+
+### Hardware setup
+
+Use the motor test bench described in `aerial_robot_nerve/motor_test/README.md`.
+
+- Connect the force sensor to the PC by USB.
+- Connect the power supply control interface to the PC by Ethernet.
+- Set the power-supply voltage manually before each run. The current `takasako_sps` node can open/close the output and read current, but it does not set output voltage.
+- The `voltage` column in a DShot telemetry log is ESC telemetry voltage, not the power-supply node voltage.
+
+### Safety checklist
+
+Do these checks before publishing `/start_log_cmd`, because that command starts the actual PWM sequence.
+
+- Confirm propeller type, propeller mounting direction, and motor rotation direction.
+- For the first bring-up, run a no-propeller dry test with a small PWM range.
+- Confirm that `/pwm_test` value `0.5` stops the motor before installing a propeller.
+- Confirm the power-supply voltage and current limit.
+- Keep a fast way to stop power output, for example the power-supply emergency stop or `/power_off_cmd`.
+
+### Current Beetle PWM range
+
+The current Beetle DShot configuration uses normalized PWM limits in `MotorInfoDShot.yaml`:
+
+```text
+min_pwm: 0.5  # raw 1000
+max_pwm: 0.9  # raw 1800
+```
+
+`motor_test` launch parameters use raw PWM-style values. Internally, `motor_test` publishes:
+
+```text
+/pwm_test = pwm_value / 2000
+```
+
+So the current calibrated Beetle range is raw `1000..1800`, or normalized `0.5..0.9`.
+
+### Example commands
+
+No-propeller first check:
+
+```bash
+roslaunch motor_test test.launch \
+  test_mode:=1 \
+  min_pwm_value:=1000 \
+  max_pwm_value:=1100 \
+  pwm_incremental_value:=50 \
+  run_duration:=0.5 \
+  raise_duration:=0.5 \
+  brake_duration:=1.0 \
+  has_dshot_telemetry:=true \
+  dshot_telemetry_id:=1
+```
+
+AT2812 motor + 9045 propeller example, matching `robots/beetle_omni/data/u=26.2v_down_prop_w_mount_part_motor_test_1727862772.txt`:
+
+```bash
+roslaunch motor_test test.launch \
+  test_mode:=1 \
+  min_pwm_value:=1000 \
+  max_pwm_value:=1800 \
+  pwm_incremental_value:=50 \
+  run_duration:=2.0 \
+  raise_duration:=2.0 \
+  brake_duration:=4.0 \
+  has_dshot_telemetry:=true \
+  dshot_telemetry_id:=1 \
+  force_sensor:=CFS034CA301U
+```
+
+Start the test after all safety checks:
+
+```bash
+rostopic pub -1 /start_log_cmd std_msgs/Empty "{}"
+```
+
+Cool down the motor between tests:
+
+```bash
+rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.54"
+```
+
+Stop the motor after cooling:
+
+```bash
+rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.5"
+```
+
+### Analyze calibration data
+
+For the provided AT2812 + 9045 log, thrust appears as negative `fz`, so use `--if_reverse`:
+
+```bash
+python3 aerial_robot_nerve/motor_test/scripts/analyze_data.py \
+  u=26.2v_down_prop_w_mount_part_motor_test_1727862772.txt \
+  --folder_path robots/beetle_omni/data/ \
+  --has_telemetry \
+  --order 3 \
+  --if_reverse
+```
+
+That file covers raw PWM `1000..1800` in `50` increments. Its valid-state average DShot voltage is about `25.09 V`, and its maximum reversed thrust is about `24.402 N`.
+
+### Updating `MotorInfoDShot.yaml`
+
+Current behavior:
+
+- `pwm_conversion_mode: 1` selects `POLYNOMINAL_MODE`.
+- Each `refN` stores one voltage reference, a `max_thrust`, and polynomial coefficients.
+- The coefficients are for `PWM_Ratio_% = f(thrust)`, from the second polynomial group printed by `analyze_data.py` (`x:fz y:PWM_Ratio_%`).
+- On spinal, the current battery/ESC voltage is compared with all `refN.voltage` values, and the nearest reference curve is selected.
+- In polynomial mode, thrust is scaled by approximately `(V_ref / V)^1.5` before evaluating the polynomial.
+- The resulting PWM percent is divided by `100` to become the normalized command, then clamped by `min_pwm` and `max_pwm`.
+
+When adding a new voltage point:
+
+1. Set the power supply voltage manually.
+2. Run a full motor test over raw PWM `1000..1800`.
+3. Analyze the log with `--order 3`; add `--if_reverse` if thrust is negative.
+4. If DShot telemetry is available, copy the printed average voltage into `refN.voltage`.
+5. Copy `max_thrust` and the second group of `polynomial3..0` values into `MotorInfoDShot.yaml` as `polynominal3..0`.
+
 ## Flying Hand
 
 We need two notebooks, one as ground station and the other for visual feedback.

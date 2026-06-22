@@ -1,48 +1,166 @@
-## Setting
-1. Very important: set `NERVE_COMM = 0` and write firmware to spinal.
+# Motor Test
 
-2. Connect like this:
+This package runs an open-loop motor/propeller thrust test. It publishes a PWM test command to spinal, logs force sensor data, logs power-supply current, and can optionally log DShot telemetry.
 
- ``````````````````````````````````
- ``````````````````````````````````
- ```  PC --spinal--ESC---rotor  ```
- ```  |              |          ```
- ```  |-- power supply          ```
- ```  |                         ```
- ```  |--force sensor           ```
- ``````````````````````````````````
- ``````````````````````````````````
-3. Create new wired setting for power supply. Set IP address of the power supply to `192.168.0.2`, Netmask to '255.255.255.0', and Gateway to 192.168.0.1.
-4. Power on the power supply and set the voltage as you like (e.g. 25.2V).
-5. In your terminal, do:
-   ```
-   $ roslaunch motor_test test.launch
-   ```
+## Hardware Setup
 
-   **parameter**:
-   - `test_mode`: the test mode. Step mode (:=0) is to give continous steps command to the ESC, the problem is the bias of the force sensor increases during the steps commands. Thus, we recommand to use **one-shot** mode (:=1, default mode), which iteratively gives an increasing PWM value. The difference is this mode stops the motor rotation after each step, and re-calibrate the force sensor before the next step. So the bias of force sensor can be considered to be zero.
-   - `run_duration`: the duration of motor rotation during each step.
-   - `pwm_incremental_value`: the increamental value between two steps.
-   - `min_pwm_value`/`max_pwm_value`: the min/max of the pwm value
-   - `raise_duration`/`brake_duration`: these are the special parameters for one-shot mode, since we have to consider the raise-up phase after staring rotation and brake-down phase after stopping rotation. For small propellers (e.g. 5inch), these value can be small. For large propellers (e.g. 14inch), please increase there values
-   - `force_sensor`: the type of force sensor. Options are CFS034CA301U (default); PFS055YA501U6 (larger type)
+1. Set `NERVE_COMM = 0` in spinal firmware and write the firmware to the board.
+2. Connect the test bench:
 
-   **sample**:
-   - for 5inch propeller:
-     ```
-     $ roslaunch motor_test test.launch max_pwm_value:=1900 raise_duration:=1.0 brake_duration:=2.0 run_duration:=2.0
-     ```
+```text
+PC -- spinal -- ESC -- motor -- propeller
+ |                |
+ |                +-- power supply output
+ |
+ +-- force sensor over USB
+ |
+ +-- power supply control over Ethernet
+```
 
-   - for 5inch propeller:
-     ```
-     $ roslaunch motor_test test.launch max_pwm_value:=1200 raise_duration:=2  brake_duration:=5 run_duration:=2
-     ```
+3. Connect the force sensor to the PC by USB.
+4. Connect the power supply to the PC by Ethernet. The `takasako_sps` node opens/closes the output and reads current; it does not set the voltage.
+5. Set the power-supply voltage manually before each test point or voltage sweep. For example, set `25.2 V` or `26.2 V` on the supply front panel/software.
+6. Check the power-supply IP settings. The current `takasako_sps` driver default target IP is `192.168.0.1` unless the node private parameter `ip_address` is changed.
 
-6. Start logging by `rostopic pub -1 /start_log_cmd std_msgs/Empty "{}" `.
+## Safety Checklist
 
-7. Cool down your motor by sending 'rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.54" ' and when it is cool enough, send 'rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.5" '，and then start a next test.
+Do these checks before publishing `/start_log_cmd`; that command starts the actual PWM sequence.
 
-## General calib for ESC:
+- Mount the motor rigidly, keep the test area clear, and wear eye protection.
+- Confirm the propeller type, propeller mounting direction, and motor rotation direction.
+- For the first bring-up, run a no-propeller dry test with a very small PWM range to confirm the whole software and wiring flow.
+- Confirm that `/pwm_test` value `0.5` stops the motor before installing a propeller.
+- Confirm the power-supply voltage and current limit before each run.
+- Keep a fast way to stop power output, for example power-supply emergency stop or `/power_off_cmd`.
+- Confirm the force sensor sign. If thrust appears as negative `fz`, use `--if_reverse` when analyzing data or remount the sensor.
 
-Low PWM: 1000 (start with 1050)
-High PWM: 1900
+## What `/start_log_cmd` Does
+
+Launch starts the nodes and performs the initial force-sensor calibration. In one-shot mode, the node also recalibrates the force sensor between PWM steps.
+
+The test itself does not start until this command is sent:
+
+```bash
+rostopic pub -1 /start_log_cmd std_msgs/Empty "{}"
+```
+
+That callback creates `motor_test_<timestamp>.txt`, publishes the first PWM command, starts the timer sequence, and enables force logging. Without this command, the force callback and PWM timer return immediately.
+
+## PWM Units
+
+`min_pwm_value`, `max_pwm_value`, and the first log column use raw PWM-style values such as `1000`, `1200`, or `1800`.
+
+Internally, `motor_test` publishes a normalized command:
+
+```text
+/pwm_test = pwm_value / pwm_range
+```
+
+With the default `pwm_range = 2000`, this means:
+
+```text
+1000 -> 0.50
+1050 -> 0.525
+1800 -> 0.90
+1900 -> 0.95
+2000 -> 1.00
+```
+
+Choose the raw PWM range according to the motor, ESC, propeller, and robot configuration being tested.
+
+## Power Supply Node
+
+`power_node` from `takasako_sps` is useful, but limited:
+
+- `/power_on_cmd` sends `OUTP ON`.
+- `/power_off_cmd` sends `OUTP OFF`.
+- `/power_info` currently fills only `currency` from `MEAS:CURR?`.
+- It does not set output voltage.
+- It does not currently fill `PowerInfo.voltage` or `PowerInfo.power`.
+
+If DShot telemetry is enabled, the logged `voltage` column comes from ESC telemetry, not from the power-supply node.
+
+## Launch Parameters
+
+- `test_mode`: `0` is step mode; `1` is one-shot mode. One-shot mode is recommended because it stops the motor after each PWM step and recalibrates the force sensor before the next step.
+- `run_duration`: valid rotation duration for each PWM step.
+- `pwm_incremental_value`: raw PWM increment between steps.
+- `min_pwm_value` and `max_pwm_value`: raw PWM sweep range.
+- `raise_duration`: time allowed for spin-up before the valid window in one-shot mode.
+- `brake_duration`: time allowed for spin-down before the next calibration in one-shot mode.
+- `force_sensor`: force sensor config name. Common options are `CFS034CA301U` and `PFS055YA501U6`.
+- `has_dshot_telemetry`: set true to log ESC RPM, temperature, and voltage.
+- `dshot_telemetry_id`: ESC telemetry index, from `1` to `4`.
+
+## Example Commands
+
+No-propeller first check:
+
+```bash
+roslaunch motor_test test.launch \
+  test_mode:=1 \
+  min_pwm_value:=1000 \
+  max_pwm_value:=1100 \
+  pwm_incremental_value:=50 \
+  run_duration:=0.5 \
+  raise_duration:=0.5 \
+  brake_duration:=1.0 \
+  has_dshot_telemetry:=true \
+  dshot_telemetry_id:=1
+```
+
+Generic propeller test example:
+
+```bash
+roslaunch motor_test test.launch \
+  test_mode:=1 \
+  min_pwm_value:=1050 \
+  max_pwm_value:=1700 \
+  pwm_incremental_value:=50 \
+  run_duration:=2.0 \
+  raise_duration:=2.0 \
+  brake_duration:=4.0 \
+  has_dshot_telemetry:=true \
+  dshot_telemetry_id:=1 \
+  force_sensor:=CFS034CA301U
+```
+
+Start the test after all safety checks:
+
+```bash
+rostopic pub -1 /start_log_cmd std_msgs/Empty "{}"
+```
+
+Cool down the motor between tests:
+
+```bash
+rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.54"
+```
+
+Stop the motor after cooling:
+
+```bash
+rostopic pub -1 /pwm_test std_msgs/Float32 "data: 0.5"
+```
+
+## Analyze Data
+
+Logs are usually written under `~/.ros/` when launched with `roslaunch`, unless the node working directory is changed.
+
+For a log with DShot telemetry and negative `fz` thrust direction, use:
+
+```bash
+python3 aerial_robot_nerve/motor_test/scripts/analyze_data.py \
+  motor_test_<timestamp>.txt \
+  --folder_path ~/.ros/ \
+  --has_telemetry \
+  --order 3 \
+  --if_reverse
+```
+
+Use `--order` to choose the polynomial order. Add `--has_telemetry` when the log contains RPM, temperature, and ESC voltage columns. Add `--if_reverse` when the force sensor sign makes thrust negative.
+
+## General ESC Calibration
+
+Low PWM: `1000` (start carefully from `1050` if needed)
+High PWM: `1900`

@@ -25,9 +25,9 @@
   <arg name="period_scale" default="4.0" />
 
   <arg name="enable_rotor_0" default="true" />
-  <arg name="enable_rotor_1" default="true" />
-  <arg name="enable_rotor_2" default="true" />
-  <arg name="enable_rotor_3" default="true" />
+  <arg name="enable_rotor_1" default="false" />
+  <arg name="enable_rotor_2" default="false" />
+  <arg name="enable_rotor_3" default="false" />
 
   <arg name="enable_force_sensor" default="true" />
   <arg name="enable_force_sensor_calib" default="false" />
