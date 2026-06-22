@@ -2,21 +2,21 @@
 <launch>
   <!--
     Open-loop rotor thrust sweep response test.
-
+    roslaunch beetle_omni bringup_rl_omni.launch real_machine:=True simulation:=False headless:=True 
     Make sure no other controller is publishing to /beetle_omni/four_axes/command
     while this node is running.
   -->
 
   <!-- Optional hardware helpers, mirrored from motor_test. -->
-  <arg name="launch_force_sensor" default="false" />
-  <arg name="launch_power_node" default="false" />
-  <arg name="force_sensor" default="CFS034CA301U" />
+  <arg name="launch_force_sensor" default="true" />
+  <arg name="launch_power_node" default="true" />
+  <arg name="force_sensor" default="CFS034CA301U" /> <!-- PFS055YA501U6, CFS034CA301U-->
 
   <arg name="enable_save" default="true" />
   <arg name="control_freq" default="100" />
-  <arg name="duration" default="100" />
+  <arg name="duration" default="50" />
   <arg name="default_thrust" default="7.0" />
-  <arg name="thrust_range" default="3.0" />
+  <arg name="thrust_range" default="10.0" />
   <arg name="thrust_min" default="0.0" />
   <arg name="thrust_max" default="20.0" />
   <arg name="disabled_thrust" default="0.0" />
@@ -30,7 +30,7 @@
   <arg name="enable_rotor_3" default="false" />
 
   <arg name="enable_force_sensor" default="true" />
-  <arg name="enable_force_sensor_calib" default="false" />
+  <arg name="enable_force_sensor_calib" default="true" />
   <arg name="enable_power_info" default="true" />
   <arg name="enable_power_on_cmd" default="true" />
   <arg name="enable_esc_telem" default="true" />
