@@ -1203,14 +1203,37 @@ void BaseNavigator::fullStateTargetCallback(const aerial_robot_msgs::FullStateTa
   tf::Vector3 root_omega;
   tf::vector3MsgToTF(msg->root_state.twist.twist.angular, root_omega);
 
-  KDL::Frame root_frame_kdl;
-  root_frame_kdl.p = KDL::Vector(root_pos.x(), root_pos.y(), root_pos.z());
-  root_frame_kdl.M = KDL::Rotation::Quaternion(root_rot.x(), root_rot.y(), root_rot.z(), root_rot.w());
+  KDL::Frame input_frame_kdl;
+  input_frame_kdl.p = KDL::Vector(root_pos.x(), root_pos.y(), root_pos.z());
+  input_frame_kdl.M = KDL::Rotation::Quaternion(root_rot.x(), root_rot.y(), root_rot.z(), root_rot.w());
 
+  KDL::Frame root_frame_kdl;
   KDL::Frame cog_frame;
   KDL::Rotation world_baselink_rot;
   {
     std::lock_guard<std::mutex> lock(full_state_cog_mutex_);
+
+    // If child_frame_id specifies a tracking link other than the KDL tree root,
+    // convert the input frame to the KDL tree root frame via inverse FK so that
+    // all downstream CoG / baselink computations remain correct regardless of
+    // which link the caller chose as its reference body.
+    const std::string& tracking_link = msg->root_state.child_frame_id;
+    if (!tracking_link.empty() && tracking_link != "root") {
+      const KDL::Frame root2tracking =
+          robot_model_->forwardKinematics<KDL::Frame>(tracking_link, updated_joint_positions);
+      root_frame_kdl = input_frame_kdl * root2tracking.Inverse();
+      // Rigid-body velocity transfer to KDL root.  Joint-induced angular velocity
+      // is intentionally ignored here, consistent with the existing approximation
+      // noted below ("Joint-motion-induced angular velocity is not representable").
+      tf::Vector3 p_root(root_frame_kdl.p.x(), root_frame_kdl.p.y(), root_frame_kdl.p.z());
+      root_vel += root_omega.cross(p_root - root_pos);
+      // Update root_pos to the KDL root position so that the cog_rel_pos
+      // computation below uses the correct reference point.
+      root_pos = p_root;
+    } else {
+      root_frame_kdl = input_frame_kdl;
+    }
+
     const KDL::Frame root2baselink_frame =
         robot_model_->forwardKinematics<KDL::Frame>(robot_model_->getBaselinkName(), updated_joint_positions);
 

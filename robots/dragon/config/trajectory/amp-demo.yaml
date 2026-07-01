@@ -1,0 +1,135 @@
+# Classic DRAGON demo trajectory (baselink = fc frame)
+# Motion sequence from simple_demo.py + transformation_demo.py:
+#   nominal → sea horse → nominal → mode model → nominal
+#   → spiral → nominal → reverse reset → nominal
+#   → yaw rotation 360° in 12s (CircleTrajectory radius=0 equivalent)
+#
+# pos:       [x, y, z]             world-frame position of fc (baselink), metres
+# rpy:       [roll, pitch, yaw]    orientation of fc, radians
+# joint_pos: [joint1_pitch, joint1_yaw, joint2_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
+# duration:  time (s) from the PREVIOUS keyframe (first entry is ignored)
+#
+# Optional (default 0 → robot pauses at keyframe):
+#   vel, omega, joint_vel
+
+
+
+keyframes:
+  # ── 0: nominal hover (start) ──────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  0.0
+
+  # ── 1: sea horse ──────────────────────────────────────────────────────────
+  # Links fold compactly; baselink tilts nose-down (pitch -0.3 rad).
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, -0.3, 0.0]
+    joint_pos: [-0.6, -1.56, -0.6, 0.0, 0.0, 1.56]
+    duration:  12
+  
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, -0.3, 0.0]
+    joint_pos: [-0.6, -1.56, -0.6, 0.0, 0.0, 1.56]
+    duration:  3.0 # pause at sea horse pose
+
+  # ── 2: spiral ─────────────────────────────────────────────────────────────
+  # Links form a helix; baselink rolls and pitches.
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.4, -0.4, 0.0]
+    joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
+    duration:  8.0
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.4, -0.4, 0.0]
+    joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
+    duration:  2.0
+
+  # ── 3: V model ─────────────────────────────────────────────────────────
+  # Links arc upward; baselink pitches up (pitch 0.75 rad).
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 0.0]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  8.0
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 0.0]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  2.0
+  # ── 4: V model Circle ─────────────────────────────────────────────────────
+  # ── yaw = π/2 ─────────────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 1.5708]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  6.0
+    omega:     [0.0, 0.0, 0.2618]   # π/12 rad/s = (π/2) / 6s
+
+  # ── yaw = π ───────────────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 3.1416]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  6.0
+    omega:     [0.0, 0.0, 0.2618]   # π/12 rad/s = (π/2) / 6s
+
+  # ── yaw = 3π/2 ────────────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 4.7124]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  6.0
+    omega:     [0.0, 0.0, 0.2618]   # π/12 rad/s = (π/2) / 6s
+
+  # ── complete 360° ─────────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 6.28]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  6.0
+
+  # ── 5: reverse reset ──────────────────────────────────────────────────────
+  # All yaw joints mirrored to -90°.
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, -1.56, 0.0, -1.56, 0.0, -1.56]
+    duration:  12.0
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, -1.56, 0.0, -1.56, 0.0, -1.56]
+    duration:  3.0
+
+  # # ── 6: spiral ─────────────────────────────────────────────────────────────
+  # # Links form a helix; baselink rolls and pitches. 
+  # # reverse reset => spiral show large deviation
+  # - pos:       [0.0, 0.0, 1.2]
+  #   rpy:       [0.4, -0.4, 0.0]
+  #   joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
+  #   duration:  8.0
+  # - pos:       [0.0, 0.0, 1.2]
+  #   rpy:       [0.4, -0.4, 0.0]
+  #   joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
+  #   duration:  2.0
+
+  # ── 6: V model ─────────────────────────────────────────────────────────
+  # Links arc upward; baselink pitches up (pitch 0.75 rad).
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 3.14]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  12.0
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.75, 3.14]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  3.0
+
+  # ── 7: nominal ────────────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  12.0
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  3.0
+
+  # ── 8: Landing reset ──────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 0.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  8.0
+
+

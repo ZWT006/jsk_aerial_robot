@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- <arg name="config" default="$(find dragon)/config/trajectory/classic-demo.yaml" /> -->
+  <arg name="config" default="$(find dragon)/config/trajectory/amp-demo.yaml" />
+
+  <node pkg="dragon" type="keyframe_tracking.py" name="keyframe_tracking" output="screen">
+    <param name="config" value="$(arg config)" />
+  </node>
+</launch>
