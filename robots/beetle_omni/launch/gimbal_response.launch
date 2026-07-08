@@ -12,12 +12,12 @@
   <node pkg="beetle_omni" type="gimbal_response" name="gimbal_response" output="screen" >
     
     <param name="save_path" value="$(find beetle_omni)/data"/>
-    <param name="enable_save" value="False"/>
-    <param name="control_freq" value="100"/>
-    <param name="duration" value="100"/>
+    <param name="enable_save" value="True"/>
+    <param name="control_freq" value="200"/>
+    <param name="duration" value="200"/>
     <param name="default_gimbal" value="0.0"/>
     <param name="gimbal_range" value="3.5"/>
-    <param name="cmd_period" value="0.2"/> <!-- perioded sweep signal -->
+    <param name="cmd_period" value="0.04"/> <!-- perioded sweep signal -->
     
     <param name="effort_ctrl" value="False"/>
     <!-- <param name="kp" value="0.285"/>
@@ -28,7 +28,13 @@
     <param name="kd" value="0.008"/>
     
     <param name="sweep_mode" value="True"/>
-    <param name="period_scale" value="10"/> <!-- 4.0 => 4x => 4.0s period -->
+    <param name="period_scale" value="50"/> <!-- 4.0 => 4x => 4.0s period -->
+
+    <!-- step_mode: staircase step-response scan. Holds each level for cmd_period seconds,
+         then advances by step_height rad; sweeps the full [-gimbal_range, +gimbal_range]
+         workspace and reverses direction at the boundary. Disable sweep_mode to use this. -->
+    <param name="step_mode" value="False"/>
+    <param name="step_height" value="0.15"/> <!-- rad, increment applied every cmd_period -->
 
     <param name="constrained_chirp_mode" value="False"/>
     <param name="chirp_sweep_type" value="Linear"/>

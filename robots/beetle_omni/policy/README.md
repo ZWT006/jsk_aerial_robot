@@ -44,6 +44,12 @@ roslaunch beetle_omni bringup_rl_omni.launch real_machine:=True simulation:=Fals
 Hold the platform and rotate/shake the robot to check whether joint control is stable.
 > **Warning:** If oscillations are observed, do **not** take off.
 
+Check rotor feedback stability 
+```shell
+rosrun beetle_omni ESCTelemUpdateAnalysis.py _duration:=20
+# or run until Ctrl+C:
+python3 ESCTelemUpdateAnalysis.py _duration:=0
+```
 ---
 
 #### Step 3: Launch Controller

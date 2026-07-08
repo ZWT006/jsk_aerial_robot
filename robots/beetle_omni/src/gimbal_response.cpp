@@ -104,6 +104,8 @@ public:
                                                     static_cast<float>(gimbal_range_),
                                                     chirp_sweep_type_);
                 last_timestep_ = timestep;
+            } else if (step_mode_) {
+                target_pos_ = stepWave(timestep, period_, step_height_, static_cast<float>(gimbal_range_));
             } else if (sweep_mode_) {
                 target_pos_ = sweepSinTriangleWave(timestep, period_, period_scale_ * period_,
                                                     duration_, static_cast<float>(gimbal_range_));
@@ -189,10 +191,10 @@ public:
                 }
             }
 
-            gimbal_data_.push_back(std::vector<float>());
-            gimbal_data_.back().push_back(static_cast<float>(timestep));
-            gimbal_data_.back().push_back(gimbal_msg_time_.toNSec() * 1e-6f);
-            gimbal_data_.back().push_back(receive_msg_time_.toNSec() * 1e-6f);
+            gimbal_data_.push_back(std::vector<double>());
+            gimbal_data_.back().push_back(static_cast<double>(timestep));
+            gimbal_data_.back().push_back(static_cast<double>(gimbal_msg_time_.toNSec()) * 1e-6);
+            gimbal_data_.back().push_back(static_cast<double>(receive_msg_time_.toNSec()) * 1e-6);
             {
                 std::lock_guard<std::mutex> lk(data_mutex_);
                 for (size_t i = 0; i < num; ++i) {
@@ -201,18 +203,9 @@ public:
                 }   
             }
             for (size_t i = 0; i < num; ++i) {
-                gimbal_data_.back().push_back(static_cast<float>(target_pos_[i]));
+                gimbal_data_.back().push_back(static_cast<double>(target_pos_[i]));
                 last_target_pos_[i] = target_pos_[i];
             }
-            // {
-            //     std::lock_guard<std::mutex> lk(data_mutex_);
-            //     for (size_t i = 0; i < num; ++i) {
-            //         gimbal_data_.back().push_back(gimbal_pos_[i]);
-            //     }   
-            // }
-            // for (size_t i = 0; i < num; ++i) {
-            //     gimbal_data_.back().push_back(static_cast<float>(target_pos_[i]));
-            // }
             if ( step_count_ % int(control_hz_) == 0) {
                 ROS_INFO("Time: %.2f s, data length : %zu.",
                     timestep,
@@ -294,6 +287,31 @@ public:
         std::vector<float> triangleVal = triangleWave(t, period * 32.0, amplitude);
         amplitude = std::abs(triangleVal[0]);
         float val = static_cast<float>(amplitude * std::sin((2.0 * M_PI / period) * phase));
+        for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
+        return wave;
+    }
+
+    // Staircase step-response wave.
+    // - target holds at a fixed level for one `period`, then jumps by +/-`step_height`
+    // - levels sweep the whole workspace [-amplitude, +amplitude], reversing direction at the boundary
+    // - useful for collecting step-response data at many operating points in a single run
+    std::vector<float> stepWave(double t, double period, float step_height, float amplitude) {
+        std::vector<float> wave(gimbal_size_, 0.0f);
+        if (period <= 0.0 || step_height <= 0.0f || amplitude <= 0.0f) return wave;
+
+        // number of increments needed to sweep from -amplitude to +amplitude
+        int n_steps = static_cast<int>(std::ceil((2.0 * amplitude) / step_height));
+        if (n_steps < 1) n_steps = 1;
+        long cycle_len = 2L * n_steps; // up n_steps, then down n_steps back to the start level
+
+        long step_idx = static_cast<long>(std::floor(t / period));
+        long phase = step_idx % cycle_len;
+        if (phase < 0) phase += cycle_len;
+
+        long level_idx = (phase <= n_steps) ? phase : (cycle_len - phase);
+        float val = -amplitude + static_cast<float>(level_idx) * step_height;
+        val = std::max(std::min(val, amplitude), -amplitude);
+
         for (int i = 0; i < gimbal_size_; ++i) wave[i] = val;
         return wave;
     }
@@ -495,6 +513,10 @@ public:
     void setSweepMode(bool sweep_mode) {
         sweep_mode_ = sweep_mode;
     }
+    void setStepMode(bool step_mode, double step_height) {
+        step_mode_ = step_mode;
+        step_height_ = step_height;
+    }
     void setConstrainedChirpMode(bool enable, double f_min, double f_max,
                                  double v_max, double a_max,
                                  const std::string& sweep_type) {
@@ -543,6 +565,9 @@ private:
     bool save_enable_ = false;
     bool sweep_mode_ = false;
     int save_count_ = 0;
+    // -------- step (staircase) mode
+    bool step_mode_ = false;
+    double step_height_ = 0.1; // rad, increment per cmd_period
     // -------- constrained chirp mode
     bool constrained_chirp_mode_ = false;
     double f_min_ = 0.1;          // Hz
@@ -552,7 +577,7 @@ private:
     double last_timestep_ = 0.0;  // for dt calculation
     std::string chirp_sweep_type_ = "linear";  // "linear", "log", "exp"
     std::chrono::high_resolution_clock::time_point start_time_;
-    std::vector<std::vector<float>> gimbal_data_; // [step][data]
+    std::vector<std::vector<double>> gimbal_data_; // [step][data]
     std::vector<float> gimbal_pos_ = std::vector<float>(gimbal_size_, 0.0f);
     std::vector<float> gimbal_vel_ = std::vector<float>(gimbal_size_, 0.0f);
     ros::Time gimbal_msg_time_;
@@ -611,6 +636,10 @@ int main(int argc, char** argv) {
     nh.param<bool>("enable_save", enable_save, false);
     bool sweep_mode;
     nh.param<bool>("sweep_mode", sweep_mode, false);
+    bool step_mode;
+    double step_height;
+    nh.param<bool>("step_mode", step_mode, false);
+    nh.param<double>("step_height", step_height, 0.1);
     // Constrained chirp parameters
     bool constrained_chirp_mode;
     double f_min, f_max, v_max_chirp, a_max_chirp;
@@ -631,7 +660,7 @@ int main(int argc, char** argv) {
         "save_path=%s,\n"
         " control_freq=%d Hz, duration=%.1f s,\n"
         " enable_gimbal=[%d,%d,%d,%d], enable_save=%d\n"
-        " sweep_mode=%d, constrained_chirp_mode=%d",
+        " sweep_mode=%d, step_mode=%d, constrained_chirp_mode=%d",
         save_path.c_str(),
         freq, duration,
         static_cast<int>(enable_gimbal_0),
@@ -640,8 +669,18 @@ int main(int argc, char** argv) {
         static_cast<int>(enable_gimbal_3),
         static_cast<int>(enable_save),
         static_cast<int>(sweep_mode),
+        static_cast<int>(step_mode),
         static_cast<int>(constrained_chirp_mode)
     );
+    if (step_mode) {
+        int n_steps = static_cast<int>(std::ceil((2.0 * gimbal_range) / std::max(1e-6, step_height)));
+        if (n_steps < 1) n_steps = 1;
+        ROS_INFO("Step (Staircase) Config:\n"
+            " cmd_period=%.3f s, step_height=%.4f rad\n"
+            " levels per sweep=%d, one full up-down sweep=%.2f s",
+            cmd_period, step_height, n_steps + 1, 2.0 * n_steps * cmd_period
+        );
+    }
     if (constrained_chirp_mode) {
         ROS_INFO("Constrained Chirp Config:\n"
             " f_min=%.2f Hz, f_max=%.2f Hz\n"
@@ -685,6 +724,7 @@ int main(int argc, char** argv) {
         response.setControlEnable(enable_gimbal_0, enable_gimbal_1, enable_gimbal_2, enable_gimbal_3);
         response.setSaveEnable(enable_save);
         response.setSweepMode(sweep_mode);
+        response.setStepMode(step_mode, step_height);
         response.setConstrainedChirpMode(constrained_chirp_mode, f_min, f_max,
                                          v_max_chirp, a_max_chirp, chirp_sweep_type);
         response.setGains(kp_, kd_, gimbal_effort_ctrl, default_gimbal);

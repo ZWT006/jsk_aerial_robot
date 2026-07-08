@@ -27,7 +27,8 @@
   <arg name="spawn_yaw" default="0.0"/>
   <arg name="config_dir" default="$(find beetle_omni)/config"/>
   <arg name="robot_id" default="11" />
-  <arg name="robot_ns" value="beetle$(arg robot_id)" />
+  <arg name="robot_ns" value="beetle1" />
+  <!-- <arg name="robot_ns" value="beetle$(arg robot_id)" /> -->
 
   <arg name="nmpc_mode" default="0" />
   <arg name="wrench_est_mode" default="none" />
@@ -97,7 +98,8 @@
   <arg name="description_mode" value="gazebo" if="$(arg simulation)" />
   <include file="$(find aerial_robot_model)/launch/aerial_robot_model.launch" >
     <arg name="headless" value="$(arg headless)" />
-    <arg name="robot_model" value="$(find beetle_omni)/robots/beetle_art_omni.$(arg description_mode).xacro"/>
+    <arg name="robot_model" value="$(find beetle_omni)/robots/beetle_rl.$(arg description_mode).xacro"/>
+    <!-- <arg name="robot_model" value="$(find beetle_omni)/robots/beetle_art_omni.$(arg description_mode).xacro"/> -->
     <arg name="model_options" value="end_effector:=$(arg end_effector)"/>
     <arg name="robot_ns" value="$(arg robot_ns)" />
     <arg name="rviz_config" value="$(arg config_dir)/rviz/nmpc.rviz" />
