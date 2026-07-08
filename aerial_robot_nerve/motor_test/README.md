@@ -46,6 +46,21 @@ rostopic pub -1 /start_log_cmd std_msgs/Empty "{}"
 
 That callback creates `motor_test_<timestamp>.txt`, publishes the first PWM command, starts the timer sequence, and enables force logging. Without this command, the force callback and PWM timer return immediately.
 
+## Force Sensor Zero Drift
+
+Current handling of force-sensor zero drift is simple and practical:
+
+- At launch, `motor_test_node` calls `/cfs_sensor_calib` once before the test starts. The `cfs_sensor` node estimates a zero offset by averaging recent raw samples, then subtracts that offset from all later wrench outputs.
+- In one-shot mode, the motor is stopped after each PWM step, a brake/cool-down period is inserted, and `/cfs_sensor_calib` is called again before the next PWM step. This is the main protection against zero drift during a sweep.
+- During logging, one-shot mode labels samples as `raise`, `valid`, and `brake`. The analysis script uses only the `valid` window and averages samples for each PWM value, which helps reject spin-up/spin-down transients and reduce short-term noise.
+
+Limits of the current approach:
+
+- There is no explicit long-term drift model, temperature compensation, or post-processing bias estimation inside each valid window.
+- Step mode does not recalibrate between PWM levels, so it is more sensitive to zero drift than one-shot mode.
+
+For best repeatability, use one-shot mode and avoid touching the sensor during calibration.
+
 ## PWM Units
 
 `min_pwm_value`, `max_pwm_value`, and the first log column use raw PWM-style values such as `1000`, `1200`, or `1800`.

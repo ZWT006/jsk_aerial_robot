@@ -12,7 +12,7 @@
   <node pkg="beetle_omni" type="gimbal_response" name="gimbal_response" output="screen" >
     
     <param name="save_path" value="$(find beetle_omni)/data"/>
-    <param name="enable_save" value="True"/>
+    <param name="enable_save" value="False"/>
     <param name="control_freq" value="200"/>
     <param name="duration" value="200"/>
     <param name="default_gimbal" value="0.0"/>
