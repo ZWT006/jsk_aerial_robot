@@ -55,6 +55,7 @@ void ESCReader::update(spinal::ESCTelemetry& esc_msg)
     // wrong length -> missed/extra bytes, not a valid single frame: drop and re-sync instead of
     // guessing at the contents
     esc_telem_rd_ptr_ = dma_write_ptr;
+    esc_msg.crc_error = -1;  // indicate that the frame was dropped due to length mismatch
     return;
   }
 

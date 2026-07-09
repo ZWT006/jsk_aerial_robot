@@ -59,6 +59,22 @@ tf::Vector3 rotate_by_quat_inv(const tf::Quaternion& q, const tf::Vector3& v) {
     return R * v;
 }
 
+// Reads an ordered list-of-strings param (e.g. 'observations', 'actions').
+// Falls back to `default_value` if the key is absent or not an array, so
+// existing configs that predate this param keep working.
+std::vector<std::string> parseStringListParam(ros::NodeHandle& nh, const std::string& key,
+                                                const std::vector<std::string>& default_value)
+{
+  XmlRpc::XmlRpcValue xml;
+  if (!nh.getParam(key, xml) || xml.getType() != XmlRpc::XmlRpcValue::TypeArray)
+    return default_value;
+  std::vector<std::string> result;
+  result.reserve(xml.size());
+  for (int i = 0; i < xml.size(); ++i)
+    result.push_back(static_cast<std::string>(xml[i]));
+  return result;
+}
+
 namespace aerial_robot_control
 {
 
@@ -98,14 +114,10 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   double goal_angle_R, goal_angle_P, goal_angle_Y;
   std::string odom_topic;
   XmlRpc::XmlRpcValue gimbal_default_xml, scales_xml;
-  getParam<double>(rl_nh,"control_freq", control_hz_, 200.0);
   getParam<int>(rl_nh,"decimation", decimation_, 4);
-  getParam<bool>(rl_nh,"history_obs", history_obs_, false);
-  getParam<int>(rl_nh,"single_obs_size", single_obs_size_, 27);
   getParam<int>(rl_nh,"history_length", history_length_, 4);
   getParam<bool>(rl_nh,"fault_injection", fault_injection_, false);
   getParam<bool>(rl_nh,"ideal_obs", ideal_obs_, false);
-  getParam<bool>(rl_nh,"fault_obs", fault_obs_, false);
   getParam<bool>(rl_nh,"fault_goal", fault_goal_, true);
   getParam<std::string>(rl_nh,"ideal_obs_topic", odom_topic, "uav/cog/odom");
   getParam<int>(rl_nh,"ideal_delay", ideal_delay_, 4);  // 100Hz 
@@ -182,6 +194,23 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
       ROS_INFO("[RL-Agent] Scale: %s = %.3f", name.c_str(), value);
   }
 
+  // Observation/action composition: order + content are fully config-driven.
+  // Defaults reproduce the legacy fixed layout for configs that predate these keys.
+  obs_terms_ = parseStringListParam(rl_nh, "observations",
+      {"goal_pos", "gimbal_pos", "root_rot_vec", "goal_rot_vec", "last_action", "lin_vel", "ang_vel"});
+  history_terms_ = parseStringListParam(rl_nh, "history_terms",
+      {"goal_pos", "gimbal_pos", "root_rot_vec", "goal_rot_vec", "last_action"});
+  action_groups_ = parseStringListParam(rl_nh, "actions", {"gimbal", "thrust"});
+  if (verbose_) {
+    std::ostringstream obs_ss, hist_ss, act_ss;
+    for (const auto& t : obs_terms_) obs_ss << t << " ";
+    for (const auto& t : history_terms_) hist_ss << t << " ";
+    for (const auto& g : action_groups_) act_ss << g << " ";
+    ROS_INFO("[RL-Agent] observations: [ %s]", obs_ss.str().c_str());
+    ROS_INFO("[RL-Agent] history_terms: [ %s]", hist_ss.str().c_str());
+    ROS_INFO("[RL-Agent] actions: [ %s]", act_ss.str().c_str());
+  }
+
   // 2. initialize ONNX Runtime
   if (verbose_)
     ROS_INFO("[RL-Agent] Loading Agent Model......");
@@ -189,11 +218,13 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   if (verbose_)
     ROS_INFO("[RL-Agent] Agent Model initialized.");
 
-  if (gimbal_size_ + thrust_size_ != action_size_)
+  size_t expected_action_size = 0;
+  for (const auto& group : action_groups_) expected_action_size += actionGroupDim(group);
+  if (expected_action_size != action_size_)
   {
-    ROS_ERROR("[RL-Agent] The action size (%lu) does not match gimbal_size (%d) + thrust_size (%d)!\n"
-              "Please check the parameter settings.",
-              action_size_, gimbal_size_, thrust_size_);
+    ROS_ERROR("[RL-Agent] Configured 'actions' composition (%zu) does not match the ONNX model's "
+              "output size (%lu)! Check the 'actions' list in YAML.",
+              expected_action_size, action_size_);
     return;
   }
   if (gimbal_size_ != static_cast<int>(gimbal_default_pos_.size()))
@@ -214,11 +245,30 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   gimbal_vel_.resize(gimbal_size_, 0.0);
   gimbal_pos_.assign(gimbal_size_, 0.0);
   gimbal_vel_.assign(gimbal_size_, 0.0);
-  if (history_obs_) {
+
+  // single_obs_size_ is the per-frame size of the history-stacked block (auto-derived,
+  // no longer a manually maintained YAML param).
+  single_obs_size_ = 0;
+  for (const auto& term : history_terms_) single_obs_size_ += static_cast<int>(obsTermDim(term));
+  if (!history_terms_.empty()) {
     history_observations_.resize(history_length_);
     for (size_t i = 0; i < history_length_; ++i) {
       history_observations_[i].resize(single_obs_size_, 0.0);
     }
+  }
+
+  size_t expected_obs_size = 0;
+  for (const auto& term : obs_terms_) {
+    size_t dim = obsTermDim(term);
+    bool in_history = std::find(history_terms_.begin(), history_terms_.end(), term) != history_terms_.end();
+    expected_obs_size += in_history ? dim * static_cast<size_t>(history_length_) : dim;
+  }
+  if (expected_obs_size != obs_size_)
+  {
+    ROS_ERROR("[RL-Agent] Configured 'observations'/'history_terms' composition (%zu) does not match "
+              "the ONNX model's input size (%lu)! Check the YAML 'observations'/'history_terms' lists.",
+              expected_obs_size, obs_size_);
+    return;
   }
 
   target_gimbal_list_.clear();
@@ -576,26 +626,24 @@ void BeetlePoseRLAgent::buildObservation()
   else
     lin_vel_world  = estimator_->getVel(Frame::BASELINK, estimate_mode_); // TODO: change to BASELINK
   
-  tf::Vector3 lin_vel_body = rotate_by_quat_inv(body_quat, lin_vel_world);
+  lin_vel_body_ = rotate_by_quat_inv(body_quat, lin_vel_world);
 
-  tf::Vector3 ang_vel_body;
   if (ideal_obs_) {
-    ang_vel_body = tf::Vector3(odom_msg_.twist.twist.angular.x,
+    ang_vel_body_ = tf::Vector3(odom_msg_.twist.twist.angular.x,
                   odom_msg_.twist.twist.angular.y,
                   odom_msg_.twist.twist.angular.z);
     if (ideal_delay_ > 0) {
-      ang_vel_list_.push_back(ang_vel_body);
-      ang_vel_body = ang_vel_list_.front();
+      ang_vel_list_.push_back(ang_vel_body_);
+      ang_vel_body_ = ang_vel_list_.front();
       if (static_cast<int>(ang_vel_list_.size()) > ideal_delay_ + 1) {
-        ang_vel_list_.erase(ang_vel_list_.begin()); 
+        ang_vel_list_.erase(ang_vel_list_.begin());
       }
     }
   }
   else
-    ang_vel_body = estimator_->getAngularVel(Frame::BASELINK, estimate_mode_); // TODO: change to BASELINK
-  // tf::Vector3 ang_vel_body = rotate_by_quat_inv(body_quat, ang_vel_world);
+    ang_vel_body_ = estimator_->getAngularVel(Frame::BASELINK, estimate_mode_); // TODO: change to BASELINK
   // gravity projection (rotate world [0,0,-1] into body)
-  tf::Vector3 gravity_b = rotate_by_quat_inv(body_quat, tf::Vector3(0.0, 0.0, -1.0));
+  gravity_b_ = rotate_by_quat_inv(body_quat, tf::Vector3(0.0, 0.0, -1.0));
 
   // goal pos in body frame
   tf::Quaternion goal_quat(desired_pose_.pose.orientation.x,
@@ -633,32 +681,23 @@ void BeetlePoseRLAgent::buildObservation()
       }
   }
 
-  // root_rot_vec and goal_rot_vec: approximate by taking first 2x3 of rotation matrix (6 elements)
+  // root_rot_vec_ and goal_rot_vec_: approximate by taking first 2x3 of rotation matrix (6 elements)
   tf::Matrix3x3 Rb(body_quat), Rg(goal_quat);
   // take rows 0..1 and cols 0..2 -> 2x3 flattened == 6 elements
-  std::vector<float> root_rot_vec;
-  std::vector<float> goal_rot_vec;
+  root_rot_vec_.clear();
+  goal_rot_vec_.clear();
   for (int r = 0; r < 2; ++r) {
       for (int c = 0; c < 3; ++c) {
-          root_rot_vec.push_back(Rb[r][c]);
-          goal_rot_vec.push_back(Rg[r][c]);
+          root_rot_vec_.push_back(Rb[r][c]);
+          goal_rot_vec_.push_back(Rg[r][c]);
       }
   }
   std::vector<float>temp_obs;
   temp_obs.reserve(obs_size_);
-  if (history_obs_) {
+  if (!history_terms_.empty()) {
     std::vector<float> current_obs;
     current_obs.reserve(single_obs_size_);
-    // goal pos (3) 3
-    current_obs.push_back(goal_pos.x()); current_obs.push_back(goal_pos.y()); current_obs.push_back(goal_pos.z());
-    // gimbal pos (4) 7
-    for (size_t i = 0; i < gimbal_size_; ++i) current_obs.push_back(gimbal_pos_[i]);
-    // root_rot_vec (6) 13
-    current_obs.insert(current_obs.end(), root_rot_vec.begin(), root_rot_vec.end());
-    // goal_rot_vec (6) 19
-    current_obs.insert(current_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
-    // last_action (8) 27
-    current_obs.insert(current_obs.end(), last_action_.begin(), last_action_.end());
+    for (const auto& term : history_terms_) appendObsTerm(term, current_obs);
     for (size_t k = history_length_ - 1; k > 0; --k) {
       history_observations_[k] = history_observations_[k - 1];
     }
@@ -667,38 +706,14 @@ void BeetlePoseRLAgent::buildObservation()
     for (size_t k = 0; k < history_length_; ++k) {
       temp_obs.insert(temp_obs.end(), history_observations_[k].begin(), history_observations_[k].end());
     }
-    temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
-    // ang vel (3) 6
-    temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
-    if (fault_obs_) {
-      for (size_t i = 0; i < thrust_size_; ++i) {
-        temp_obs.push_back(thrust_scale_[i]);
-      }
+    // terms not stacked in history are appended once, in their obs_terms_ order
+    for (const auto& term : obs_terms_) {
+      if (std::find(history_terms_.begin(), history_terms_.end(), term) == history_terms_.end())
+        appendObsTerm(term, temp_obs);
     }
   }
   else {
-    // gravity (3) 9
-    // temp_obs.push_back(gravity_b.x()); temp_obs.push_back(gravity_b.y()); temp_obs.push_back(gravity_b.z());
-    // goal pos (3) 12
-    temp_obs.push_back(goal_pos.x()); temp_obs.push_back(goal_pos.y()); temp_obs.push_back(goal_pos.z());
-    // gimbal dof (4) 16
-    for (size_t i = 0; i < gimbal_size_; ++i) temp_obs.push_back(gimbal_pos_[i]);
-    // root_rot_vec (6) 22
-    temp_obs.insert(temp_obs.end(), root_rot_vec.begin(), root_rot_vec.end());
-    // goal_rot_vec (6) 28
-    temp_obs.insert(temp_obs.end(), goal_rot_vec.begin(), goal_rot_vec.end());
-    // last_action (8) 36
-    temp_obs.insert(temp_obs.end(), last_action_.begin(), last_action_.end());
-    // lin vel (3) 3
-    temp_obs.push_back(lin_vel_body.x() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.y() * scales["lin_vel"]); temp_obs.push_back(lin_vel_body.z() * scales["lin_vel"]);
-    // ang vel (3) 6
-    temp_obs.push_back(ang_vel_body.x() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.y() * scales["agn_vel"]); temp_obs.push_back(ang_vel_body.z() * scales["agn_vel"]);
-    // rotor status (fault) (4) 40
-    if (fault_obs_) {
-      for (size_t i = 0; i < thrust_size_; ++i) {
-        temp_obs.push_back(thrust_scale_[i]);
-      }
-    }
+    for (const auto& term : obs_terms_) appendObsTerm(term, temp_obs);
   }
   // verify obs36 length (should be 36)
   if (temp_obs.size() != obs_size_) {
@@ -712,13 +727,62 @@ void BeetlePoseRLAgent::buildObservation()
   // std::cout << "-------- [RL Agent`] buildObservation() finished --------" << std::endl;
 }
 
-void BeetlePoseRLAgent::sendCmd()
+void BeetlePoseRLAgent::appendObsTerm(const std::string& term, std::vector<float>& out)
 {
-  for (size_t i = 0; i < action_size_; ++i) {
-    last_action_[i] = action_[i];
+  if (term == "goal_pos") {
+    out.push_back(pos_error.x()); out.push_back(pos_error.y()); out.push_back(pos_error.z());
+  } else if (term == "gimbal_pos") {
+    for (size_t i = 0; i < gimbal_size_; ++i) out.push_back(gimbal_pos_[i]);
+  } else if (term == "root_rot_vec") {
+    out.insert(out.end(), root_rot_vec_.begin(), root_rot_vec_.end());
+  } else if (term == "goal_rot_vec") {
+    out.insert(out.end(), goal_rot_vec_.begin(), goal_rot_vec_.end());
+  } else if (term == "last_action") {
+    out.insert(out.end(), last_action_.begin(), last_action_.end());
+  } else if (term == "lin_vel") {
+    out.push_back(lin_vel_body_.x() * scales["lin_vel"]);
+    out.push_back(lin_vel_body_.y() * scales["lin_vel"]);
+    out.push_back(lin_vel_body_.z() * scales["lin_vel"]);
+  } else if (term == "ang_vel") {
+    out.push_back(ang_vel_body_.x() * scales["agn_vel"]);
+    out.push_back(ang_vel_body_.y() * scales["agn_vel"]);
+    out.push_back(ang_vel_body_.z() * scales["agn_vel"]);
+  } else if (term == "gravity") {
+    out.push_back(gravity_b_.x()); out.push_back(gravity_b_.y()); out.push_back(gravity_b_.z());
+  } else if (term == "fault_obs") {
+    for (size_t i = 0; i < thrust_size_; ++i) out.push_back(thrust_scale_[i]);
+  } else {
+    ROS_WARN_THROTTLE(5.0, "[RL-Agent] Unknown observation term '%s', skipping.", term.c_str());
   }
+}
+
+size_t BeetlePoseRLAgent::obsTermDim(const std::string& term) const
+{
+  if (term == "goal_pos") return 3;
+  if (term == "gimbal_pos") return static_cast<size_t>(gimbal_size_);
+  if (term == "root_rot_vec") return 6;
+  if (term == "goal_rot_vec") return 6;
+  if (term == "last_action") return action_size_;
+  if (term == "lin_vel") return 3;
+  if (term == "ang_vel") return 3;
+  if (term == "gravity") return 3;
+  if (term == "fault_obs") return static_cast<size_t>(thrust_size_);
+  ROS_WARN("[RL-Agent] Unknown observation term '%s' when computing dimension.", term.c_str());
+  return 0;
+}
+
+size_t BeetlePoseRLAgent::actionGroupDim(const std::string& group) const
+{
+  if (group == "gimbal") return static_cast<size_t>(gimbal_size_);
+  if (group == "thrust") return static_cast<size_t>(thrust_size_);
+  ROS_WARN("[RL-Agent] Unknown action group '%s' when computing dimension.", group.c_str());
+  return 0;
+}
+
+void BeetlePoseRLAgent::applyGimbalAction(const float* action_slice)
+{
   for (size_t i = 0; i < gimbal_size_; ++i) {
-    target_gimbal_[i] = action_[i] * scales["gimbal_act"] + gimbal_default_pos_[i];
+    target_gimbal_[i] = action_slice[i] * scales["gimbal_act"] + gimbal_default_pos_[i];
   }
   if (gimbal_target_delay_steps_ > 0) {
       target_gimbal_list_.push_back(target_gimbal_);
@@ -738,17 +802,21 @@ void BeetlePoseRLAgent::sendCmd()
       gimbal_cmd_.effort[i] = static_cast<float>(gimbal_kp_ * pos_err + gimbal_kd_ * vel_err);
     }
   }
+}
+
+void BeetlePoseRLAgent::applyThrustAction(const float* action_slice)
+{
   if (thrust_tau_ > 0.0)  {
     for (size_t i = 0; i < thrust_size_; ++i) {
       double a = std::exp(- (1.0 / 200.0) / thrust_tau_);
-      double thrust_input = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
+      double thrust_input = action_slice[i] * scales["thrust_act"] + thrust_default_;
       double thrust_old = target_thrust_[i];
       target_thrust_[i] = a * thrust_old + (1 - a) * thrust_input;
     }
   }
   else {
     for (size_t i = 0; i < thrust_size_; ++i) {
-      target_thrust_[i] = action_[gimbal_size_ + i] * scales["thrust_act"] + thrust_default_;
+      target_thrust_[i] = action_slice[i] * scales["thrust_act"] + thrust_default_;
     }
   }
   if (thrust_target_delay_steps_ > 0) {
@@ -769,6 +837,25 @@ void BeetlePoseRLAgent::sendCmd()
     }
     else if (thrust_cmd_.base_thrust[i] < 0.0) {
       thrust_cmd_.base_thrust[i] = 0.0;
+    }
+  }
+}
+
+void BeetlePoseRLAgent::sendCmd()
+{
+  for (size_t i = 0; i < action_size_; ++i) {
+    last_action_[i] = action_[i];
+  }
+  size_t action_offset = 0;
+  for (const auto& group : action_groups_) {
+    if (group == "gimbal") {
+      applyGimbalAction(&action_[action_offset]);
+      action_offset += gimbal_size_;
+    } else if (group == "thrust") {
+      applyThrustAction(&action_[action_offset]);
+      action_offset += thrust_size_;
+    } else {
+      ROS_WARN_THROTTLE(5.0, "[RL-Agent] Unknown action group '%s', skipping.", group.c_str());
     }
   }
   gimbal_cmd_.header.stamp = ros::Time::now();

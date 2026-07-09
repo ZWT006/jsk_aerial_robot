@@ -70,14 +70,25 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 
 rlagent:
   onnx_model_path: "policy/policy-2026-03-30_21-08-51-20000.onnx" # Path in ros package
-  control_freq: 400.0
-  decimation: 2
-  history_obs: false
-  single_obs_size: 27
-  history_length: 4
+  decimation: 2   # align with aerial_robot_base_node:main rate = 200Hz, for 100Hz control
+  history_length: 4  # only used if history_terms below is non-empty
   fault_injection: true
-  fault_obs: true
   fault_goal: false  # degraded goal when fault injected
+  # Observation vector: order + content, assembled in this exact order.
+  observations: [
+    goal_pos, 
+    gimbal_pos, 
+    root_rot_vec, 
+    goal_rot_vec, 
+    last_action, 
+    lin_vel, 
+    ang_vel
+  ]
+  # Subset of `observations` (above) that gets stacked history_length times, most-recent-first.
+  # Empty = no history stacking, `observations` is just concatenated once.
+  history_terms: []
+  # Action vector: order in which the policy's output is sliced and applied.
+  actions: [gimbal, thrust]
   ideal_obs: false
   ideal_obs_topic: "uav/cog/odom"
   ideal_delay: 0

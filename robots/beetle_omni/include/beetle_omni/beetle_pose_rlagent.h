@@ -57,11 +57,24 @@ namespace aerial_robot_control
     // ----------- RL Agent functions -----------
     void initRLAgent(std::string model_path);
     // void initRLAgent(std::string model_path);
-    
+
     void buildObservation();
     void policyForward();
 
     void sendCmd();
+
+    // ----------- Observation term / Action group dispatch -----------
+    // Looks up `term` by name and appends its (scaled) values to `out`.
+    // Physical features consumed here (root_rot_vec_, lin_vel_body_, etc.) are
+    // computed once per buildObservation() call before this is invoked.
+    void appendObsTerm(const std::string& term, std::vector<float>& out);
+    void applyGimbalAction(const float* action_slice);
+    void applyThrustAction(const float* action_slice);
+    // Dimension of a named observation term / action group, used to validate
+    // the configured 'observations'/'history_terms'/'actions' lists against
+    // the ONNX model's actual input/output size.
+    size_t obsTermDim(const std::string& term) const;
+    size_t actionGroupDim(const std::string& group) const;
 
     // ----------- ROS Callbacks -----------
     void goalCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
@@ -106,14 +119,11 @@ namespace aerial_robot_control
     std::vector<std::vector<float>> history_observations_;
     std::vector<float> action_;
     std::vector<float> last_action_; // will resize to action_size_
-    double control_hz_;
     size_t obs_size_;
     size_t action_size_;
-    int single_obs_size_;
+    int single_obs_size_ = 0;  // auto-computed from history_terms_ in initialize()
     int history_length_;
-    bool history_obs_ = false;
     bool ideal_obs_ = false;
-    bool fault_obs_ = false;
     bool fault_goal_ = true;
     int step_count_ = 0;
     int decimation_ = 4;
@@ -127,6 +137,19 @@ namespace aerial_robot_control
     tf::Vector3 pos_error;
     tf::Vector3 ang_error;
     tf::Vector3 pos_body,ang_body,pos_goal,ang_goal;
+
+    // ----------- Observation feature cache (filled once per buildObservation(), read by appendObsTerm) -----------
+    tf::Vector3 lin_vel_body_, ang_vel_body_, gravity_b_;
+    std::vector<float> root_rot_vec_, goal_rot_vec_;
+
+    // ----------- Observation/Action composition (read from YAML 'observations'/'history_terms'/'actions') -----------
+    // obs_terms_: full ordered composition of the observation vector.
+    // history_terms_: subset of obs_terms_ that gets stacked history_length_ times (order-preserving);
+    //                 empty means no history stacking (single-frame observation, as obs_terms_ order).
+    // action_groups_: ordered slicing of the policy's action output, e.g. {"gimbal","thrust"} or {"thrust","gimbal"}.
+    std::vector<std::string> obs_terms_;
+    std::vector<std::string> history_terms_;
+    std::vector<std::string> action_groups_;
 
     bool fc2root_transform_ = false;
     tf::Vector3 root2fc_pos_;

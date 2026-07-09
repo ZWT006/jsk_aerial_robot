@@ -31,19 +31,34 @@ aerial_robot_control_name: aerial_robot_control/beetle_pose_rlagent
 # policy-2026-04-10_19-43-23-20000.onnx
 # policy-2026-04-11_22-03-30-20000.onnx # beetle omni urdf
 
+# policy-2026-06-13_09-46-13-30000.onnx # beetle se3
+# policy-2026-07-08_21-45-49-30000.onnx # beetle se3 nwe kp,kd
+
 # rosservice call /beetle_omni/rlagent/reload_policy \
-#   "policy_name: 'policy/policy-2026-04-10_19-43-23-20000.onnx'"
+#   "policy_name: 'policy/policy-2026-06-13_09-46-13-30000.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-04-11_22-03-30-20000.onnx" # Path in ros package
-  control_freq: 400.0
+  onnx_model_path: "policy/policy-2026-07-08_21-45-49-30000.onnx" # Path in ros package
   decimation: 2
-  history_obs: false
-  single_obs_size: 27
-  history_length: 4
+  history_length: 4  # only used if history_terms below is non-empty
   fault_injection: true
-  fault_obs: true
   fault_goal: true  # degraded goal when fault injected
+  # Observation vector: order + content, assembled in this exact order.
+  # goal_pos, gimbal_pos, root_rot_vec, goal_rot_vec, last_action, lin_vel, ang_vel, fault_obs
+  observations: [
+    goal_pos, 
+    gimbal_pos, 
+    root_rot_vec, 
+    goal_rot_vec, 
+    last_action, 
+    lin_vel, 
+    ang_vel
+  ]
+  # Subset of `observations` (above) that gets stacked history_length times, most-recent-first.
+  # Empty = no history stacking, `observations` is just concatenated once.
+  history_terms: []
+  # Action vector: order in which the policy's output is sliced and applied.
+  actions: [gimbal, thrust]
   ideal_obs: false
   # ideal_obs_topic: "uav/cog/odom"
   ideal_obs_topic: "uav/baselink/odom"
@@ -58,7 +73,7 @@ rlagent:
   thrust_scale: 1.0
   thrust_tau: 0.0 # 0.0342
   thrust_target_delay_steps: 1
-  enable_gimbal: false
+  enable_gimbal: true
   goal_pos_x: 0.0
   goal_pos_y: 0.0
   goal_pos_z: 1.2
