@@ -141,6 +141,7 @@ namespace aerial_robot_control
     // ----------- Observation feature cache (filled once per buildObservation(), read by appendObsTerm) -----------
     tf::Vector3 lin_vel_body_, ang_vel_body_, gravity_b_;
     std::vector<float> root_rot_vec_, goal_rot_vec_;
+    bool need_imu_ = false;  // true if obs_terms_ contains imu_acc/imu_gyr; gates on imu_catch_
 
     // ----------- Observation/Action composition (read from YAML 'observations'/'history_terms'/'actions') -----------
     // obs_terms_: full ordered composition of the observation vector.

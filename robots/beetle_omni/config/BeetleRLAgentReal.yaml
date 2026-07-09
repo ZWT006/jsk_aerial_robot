@@ -75,13 +75,18 @@ rlagent:
   fault_injection: true
   fault_goal: false  # degraded goal when fault injected
   # Observation vector: order + content, assembled in this exact order.
+  # Available terms: goal_pos(3), gimbal_pos(4), gimbal_vel(4), rotor_thrust(4), root_rot_vec(6), goal_rot_vec(6),
+  #                  imu_acc(3), imu_gyr(3), last_action(8), lin_vel(3), ang_vel(3), gravity(3), fault_obs(4)
+  # New training layout (rotor_vel not supported yet):
+  # observations: [goal_pos, gimbal_pos, gimbal_vel, rotor_thrust, root_rot_vec, goal_rot_vec,
+  #                imu_acc, imu_gyr, last_action, lin_vel, ang_vel]
   observations: [
-    goal_pos, 
-    gimbal_pos, 
-    root_rot_vec, 
-    goal_rot_vec, 
-    last_action, 
-    lin_vel, 
+    goal_pos,
+    gimbal_pos,
+    root_rot_vec,
+    goal_rot_vec,
+    last_action,
+    lin_vel,
     ang_vel
   ]
   # Subset of `observations` (above) that gets stacked history_length times, most-recent-first.
@@ -119,7 +124,11 @@ rlagent:
   thrust_size: 4
   scales:
     lin_vel: 1.0
-    agn_vel: 0.2
+    ang_vel: 0.2
+    dof_vel: 0.2   # gimbal_vel term
+    gyroc: 0.2     # imu_gyr term
+    accel: 0.1     # imu_acc term
+    rotor: 0.1     # rotor_thrust term
     gimbal_act: 0.25
     thrust_act: 0.50  # 1.25 before 3.
     clip_observation: 100.0

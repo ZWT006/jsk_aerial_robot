@@ -211,6 +211,23 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
     ROS_INFO("[RL-Agent] actions: [ %s]", act_ss.str().c_str());
   }
 
+  // Every scaled term must have its scale defined under rlagent/scales; a missing
+  // key would otherwise be silently default-constructed to 0.0 by std::map and
+  // zero out that observation term.
+  const std::map<std::string, std::string> term_scale_keys = {
+      {"lin_vel", "lin_vel"}, {"ang_vel", "ang_vel"}, {"gimbal_vel", "dof_vel"},
+      {"imu_acc", "accel"}, {"imu_gyr", "gyroc"}, {"rotor_thrust", "rotor"}};
+  for (const auto& term : obs_terms_) {
+    auto it = term_scale_keys.find(term);
+    if (it != term_scale_keys.end() && scales.find(it->second) == scales.end()) {
+      ROS_ERROR("[RL-Agent] Observation term '%s' requires scale '%s' under rlagent/scales in YAML!",
+                term.c_str(), it->second.c_str());
+      return;
+    }
+  }
+  need_imu_ = std::find(obs_terms_.begin(), obs_terms_.end(), "imu_acc") != obs_terms_.end() ||
+              std::find(obs_terms_.begin(), obs_terms_.end(), "imu_gyr") != obs_terms_.end();
+
   // 2. initialize ONNX Runtime
   if (verbose_)
     ROS_INFO("[RL-Agent] Loading Agent Model......");
@@ -299,6 +316,10 @@ void BeetlePoseRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   goal_sub_   = nh_.subscribe("/desired_3D_pose", 1, &BeetlePoseRLAgent::goalCallback, this);
   gimbal_sub_ = nh_.subscribe("joint_states", 1, &BeetlePoseRLAgent::gimbalCallback, this);
   odom_sub_ = nh_.subscribe(odom_topic, 1, &BeetlePoseRLAgent::odomCallback, this);
+  // spinal::Imu on "imu": published by the STM32 firmware on the real machine and by the
+  // firmware-shared AttitudeEstimate inside the Gazebo plugin in simulation.
+  if (need_imu_)
+    imu_sub_ = nh_.subscribe("imu", 1, &BeetlePoseRLAgent::imuCallback, this);
   brake_sub_ = nh_.subscribe("teleop_command/brake", 1, &BeetlePoseRLAgent::brakeCallback, this);
   unbrake_sub_ = nh_.subscribe("teleop_command/unbrake", 1, &BeetlePoseRLAgent::unbrakeCallback, this);
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
@@ -559,6 +580,11 @@ void BeetlePoseRLAgent::buildObservation()
     catch_obs_ = false;
     return;
   }
+  if (need_imu_ && !imu_catch_) {
+    ROS_WARN_THROTTLE(2.0, "[RL-Agent] No IMU data received yet!");
+    catch_obs_ = false;
+    return;
+  }
   // body quaternion and pos
   tf::Quaternion body_quat;
   if (ideal_obs_)
@@ -733,6 +759,18 @@ void BeetlePoseRLAgent::appendObsTerm(const std::string& term, std::vector<float
     out.push_back(pos_error.x()); out.push_back(pos_error.y()); out.push_back(pos_error.z());
   } else if (term == "gimbal_pos") {
     for (size_t i = 0; i < gimbal_size_; ++i) out.push_back(gimbal_pos_[i]);
+  } else if (term == "gimbal_vel") {
+    for (size_t i = 0; i < gimbal_size_; ++i) out.push_back(gimbal_vel_[i] * scales["dof_vel"]);
+  } else if (term == "rotor_thrust") {
+    // last thrust actually commanded to the ESCs (post scale + clamp); training's rotor_thrust.
+    // buildObservation() runs before sendCmd(), so this holds the previous control step's value.
+    for (size_t i = 0; i < thrust_size_; ++i) out.push_back(thrust_cmd_.base_thrust[i] * scales["rotor"]);
+  } else if (term == "imu_acc") {
+    // training: imu_acc = imu_sensor.data.lin_acc_b (proper accel incl. gravity, body frame)
+    for (size_t i = 0; i < 3; ++i) out.push_back(imu_msg_.acc_data[i] * scales["accel"]);
+  } else if (term == "imu_gyr") {
+    // training: imu_gyr = imu_sensor.data.ang_vel_b (body frame)
+    for (size_t i = 0; i < 3; ++i) out.push_back(imu_msg_.gyro_data[i] * scales["gyroc"]);
   } else if (term == "root_rot_vec") {
     out.insert(out.end(), root_rot_vec_.begin(), root_rot_vec_.end());
   } else if (term == "goal_rot_vec") {
@@ -744,9 +782,9 @@ void BeetlePoseRLAgent::appendObsTerm(const std::string& term, std::vector<float
     out.push_back(lin_vel_body_.y() * scales["lin_vel"]);
     out.push_back(lin_vel_body_.z() * scales["lin_vel"]);
   } else if (term == "ang_vel") {
-    out.push_back(ang_vel_body_.x() * scales["agn_vel"]);
-    out.push_back(ang_vel_body_.y() * scales["agn_vel"]);
-    out.push_back(ang_vel_body_.z() * scales["agn_vel"]);
+    out.push_back(ang_vel_body_.x() * scales["ang_vel"]);
+    out.push_back(ang_vel_body_.y() * scales["ang_vel"]);
+    out.push_back(ang_vel_body_.z() * scales["ang_vel"]);
   } else if (term == "gravity") {
     out.push_back(gravity_b_.x()); out.push_back(gravity_b_.y()); out.push_back(gravity_b_.z());
   } else if (term == "fault_obs") {
@@ -760,6 +798,10 @@ size_t BeetlePoseRLAgent::obsTermDim(const std::string& term) const
 {
   if (term == "goal_pos") return 3;
   if (term == "gimbal_pos") return static_cast<size_t>(gimbal_size_);
+  if (term == "gimbal_vel") return static_cast<size_t>(gimbal_size_);
+  if (term == "rotor_thrust") return static_cast<size_t>(thrust_size_);
+  if (term == "imu_acc") return 3;
+  if (term == "imu_gyr") return 3;
   if (term == "root_rot_vec") return 6;
   if (term == "goal_rot_vec") return 6;
   if (term == "last_action") return action_size_;
@@ -912,7 +954,7 @@ void BeetlePoseRLAgent::gimbalCallback(const sensor_msgs::JointState::ConstPtr& 
   for (size_t i=0, j=0; i < msg->name.size(); i++) {
     if (msg->name[i].find(gimbal_cmd_.name[j]) != std::string::npos && j < gimbal_size_) {
       gimbal_pos_[j] = msg->position[i] - gimbal_default_pos_[j];
-      if (gimbal_effort_ctrl_)
+      if (i < msg->velocity.size())
         gimbal_vel_[j] = msg->velocity[i];
       j++;
     }
