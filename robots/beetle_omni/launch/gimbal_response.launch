@@ -8,6 +8,10 @@
     #    roslaunch gimbalrotor response.launch 
     # 3. the response will be logged to gimbal_response_log.csv in the /data folder of the package
     #    
+    # StepSet : (Step)step_mode=True, cmd_period=0.2, step_height=0.15
+    # IdentSet: (SweepSinWave) sweep_mode=True, cmd_period=0.04, period_scale=50
+    # ValSet  : constrained_chirp_mode=True, cmd_period=4.0
+    # ValSet  : (MultipleWave) sweep_mode,step_mode,constrained_chirp_mode=False, cmd_period=4.0
     #############################################
   <node pkg="beetle_omni" type="gimbal_response" name="gimbal_response" output="screen" >
     

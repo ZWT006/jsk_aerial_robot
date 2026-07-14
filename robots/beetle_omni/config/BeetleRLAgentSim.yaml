@@ -86,8 +86,8 @@ rlagent:
   gimbal_default: {gimbal1: 0.0, gimbal2: 0.0, gimbal3: 0.0, gimbal4: 0.0}
   # gimbal_kp: 0.285
   # gimbal_kd: 0.019
-  # gimbal_kp: 0.344964875
-  # gimbal_kd: 0.0094725 # 
+  # gimbal_kp: 0.344964875  # Release Version, for Beetle 100Hz feedback
+  # gimbal_kd: 0.0094725    # Release Version ,for Beetle 100Hz feedback
   gimbal_kp: 0.45
   gimbal_kd: 0.008 # 
   gimbal_limit: 5.5 # rad
