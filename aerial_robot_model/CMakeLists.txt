@@ -42,6 +42,7 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-O3 -g -DNDEBUG")
 add_service_files(
   FILES
   AddExtraModule.srv
+  ReloadPolicy.srv
   )
 
 generate_messages(

@@ -1,0 +1,78 @@
+aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
+
+# Whole-body target-state tracking RL agent for DRAGON.
+# Target states are supplied online as aerial_robot_msgs/FullStateTarget. The
+# agent keeps a FIFO of the latest target frames and flattens it into the
+# training-style target observation block.
+
+rlagent:
+  onnx_model_path: "policy/policy-2026-07-10_13-50-35-20.5k.onnx"
+  decimation: 5
+
+  # ---- target-state FIFO ----
+  target_state_topic: "full_state_target"
+  target_obs_horizon: 5
+  target_obs: [root_pos, root_rot_vec, joint_pos]
+
+  # ---- observation/action composition ----
+  # Available observation terms:
+  #   target_obs_history, joint_pos, joint_vel, gimbal_pos, gimbal_vel,
+  #   root_rot_vec, lin_vel, ang_vel, last_action
+  observations: [
+    target_obs_history,
+    joint_pos,
+    joint_vel,
+    gimbal_pos,
+    gimbal_vel,
+    root_rot_vec,
+    lin_vel,
+    ang_vel,
+    last_action
+  ]
+  history_length: 1
+  history_terms: []
+  actions: [joint, gimbal, thrust]
+
+  # ---- observation source ----
+  ideal_obs: false
+  ideal_obs_topic: "/dragon/ground_truth" # /dragon/ground_truth, /dragon/uav/baselink/odom
+  ideal_delay: 2
+
+  # ---- actuator layout (sim order; must match training) ----
+  joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
+  gimbal_names: [gimbal2_roll, gimbal2_pitch, gimbal1_roll, gimbal3_roll,
+                 gimbal1_pitch, gimbal3_pitch, gimbal4_roll, gimbal4_pitch]
+  thrust_pair_names: [edf2, edf1, edf3, edf4]
+  # joint_default: {joint1_yaw: 0.0}
+  # gimbal_default: {gimbal1_roll: 0.0}
+
+  # ---- command gates / shaping ----
+  enable_thrust: true
+  enable_joint: false
+  enable_gimbal: false
+  joint_effort_ctrl: true
+  gimbal_effort_ctrl: true
+  thrust_hover: 8.5
+  thrust_limit: 16.0
+  thrust_scale: 1.0
+  joint_limit: 1.5708
+  gimbal_limit: 3.14
+  joint_target_delay_steps: 0
+  gimbal_target_delay_steps: 0
+  thrust_target_delay_steps: 1
+
+  # ---- logging ----
+  rlagent_verbose: true
+  rlagent_debug: true
+  rlagent_forward_info: true
+
+  # ---- scales (training: normalization.obs_scales + control action scales) ----
+  scales:
+    dof_vel: 0.5
+    lin_vel: 1.0
+    ang_vel: 0.2
+    joint_act: 0.25
+    gimbal_act: 0.25
+    thrust_act: 0.5
+    clip_observation: 100.0
+    clip_action: 100.0

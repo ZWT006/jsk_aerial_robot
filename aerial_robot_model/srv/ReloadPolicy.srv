@@ -1,0 +1,4 @@
+string policy_name   # relative to package root, e.g. "policy/policy-xxx.onnx"
+---
+bool success
+string message

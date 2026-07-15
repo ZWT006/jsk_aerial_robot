@@ -11,7 +11,17 @@ find_package(catkin REQUIRED COMPONENTS
   mujoco_ros_control
   pluginlib
   roscpp
+  std_srvs
 )
+
+# onnxruntime (for the RL agent controller); use $ENV{HOME} for a portable absolute path
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "aarch64")
+  set(ONNXRUNTIME_DIR "$ENV{HOME}/libraries/onnxruntime-linux-aarch64-1.22.0")
+elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "amd64")
+  set(ONNXRUNTIME_DIR "$ENV{HOME}/libraries/onnxruntime")
+else()
+  message(FATAL_ERROR "Unsupported architecture: ${CMAKE_SYSTEM_PROCESSOR}. Please set ONNXRUNTIME_DIR manually in CMakeLists.txt")
+endif()
 
 find_package(Eigen3 REQUIRED)
 if(NOT CMAKE_BUILD_TYPE)
@@ -37,6 +47,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${NLOPT_INCLUDE_DIRS}
+  ${ONNXRUNTIME_DIR}/include
 )
 
 
@@ -53,6 +64,16 @@ add_dependencies(dragon_aerial_robot_controllib aerial_robot_msgs_generate_messa
 
 add_library(dragon_navigation src/dragon_navigation.cpp)
 target_link_libraries(dragon_navigation ${catkin_LIBRARIES})
+
+add_library(dragon_tracker_rlagent src/control/dragon_tracker_rlagent.cpp)
+add_dependencies(dragon_tracker_rlagent
+  ${${PROJECT_NAME}_EXPORTED_TARGETS}
+  ${catkin_EXPORTED_TARGETS}
+)
+target_link_libraries(dragon_tracker_rlagent
+  ${catkin_LIBRARIES}
+  ${ONNXRUNTIME_DIR}/lib/libonnxruntime.so
+)
 
 # Demo nodes
 add_executable(full_state_traj_demo src/demo/full_state_traj_demo.cpp)
@@ -87,7 +108,7 @@ install(TARGETS dragon_jacobian_test full_state_traj_demo root_6D_traj_demo root
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
-install(TARGETS dragon_sensor_pluginlib dragon_robot_model dragon_aerial_robot_controllib dragon_navigation dragon_numerical_jacobians
+install(TARGETS dragon_sensor_pluginlib dragon_robot_model dragon_aerial_robot_controllib dragon_navigation dragon_numerical_jacobians dragon_tracker_rlagent
   DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )
 

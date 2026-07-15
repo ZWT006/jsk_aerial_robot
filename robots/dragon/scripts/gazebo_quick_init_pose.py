@@ -82,4 +82,3 @@ if __name__ == "__main__":
 
     pose_controller = InitPose()
     pose_controller.main()
-

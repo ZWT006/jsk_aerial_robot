@@ -9,6 +9,17 @@ Usage:
     rosrun dragon keyframe_tracking.py <yaml_path>
     rosrun dragon keyframe_tracking.py _config:=<yaml_path>
 
+Modes (~mode):
+    real (default): sample ~init_sample_num frames of odometry + joint states and
+        replace the first YAML keyframe with the averaged measured state; after
+        takeoff the spline reaches the second YAML keyframe within its 'duration',
+        exactly like the sim interpolation.
+    sim: start directly from the first YAML keyframe (robot is assumed to already
+        be there, e.g. Gazebo quick-init).
+
+Topics default to /<robot_ns>/... with robot_ns from the ~robot_ns parameter
+(falling back to the node's namespace).
+
 YAML format:
     keyframes:
       - pos: [x, y, z]
@@ -29,6 +40,9 @@ import yaml
 import numpy as np
 import rospy
 from aerial_robot_msgs.msg import FullStateTarget
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
+from std_msgs.msg import Empty
 import tf.transformations as tft
 
 FREQ = 40.0
@@ -64,6 +78,66 @@ def load_keyframes(yaml_path):
         'omega':     np.array(kf.get('omega',     [0., 0., 0.]), dtype=float),
         'joint_vel': np.array(kf.get('joint_vel', [0.] * 6),    dtype=float),
     } for kf in data['keyframes']]
+
+
+def collect_initial_keyframe(odom_topic, joint_topic, n_samples, timeout=10.0):
+    """Average n_samples of odometry + joint states into a start keyframe."""
+    odoms, joints = [], []
+
+    def odom_cb(msg):
+        if len(odoms) < n_samples:
+            odoms.append(msg)
+
+    def joint_cb(msg):
+        if len(joints) < n_samples and msg.name:
+            joints.append(msg)
+
+    odom_sub = rospy.Subscriber(odom_topic, Odometry, odom_cb, queue_size=n_samples)
+    joint_sub = rospy.Subscriber(joint_topic, JointState, joint_cb, queue_size=n_samples)
+    rospy.loginfo("Collecting %d frames from %s and %s ...", n_samples, odom_topic, joint_topic)
+
+    deadline = rospy.Time.now() + rospy.Duration(timeout)
+    poll = rospy.Rate(100)
+    while not rospy.is_shutdown() and (len(odoms) < n_samples or len(joints) < n_samples):
+        if rospy.Time.now() > deadline:
+            odom_sub.unregister()
+            joint_sub.unregister()
+            raise RuntimeError(
+                "Timed out collecting initial state: %d/%d odom, %d/%d joint msgs "
+                "(check %s and %s)" % (len(odoms), n_samples, len(joints), n_samples,
+                                       odom_topic, joint_topic))
+        poll.sleep()
+    odom_sub.unregister()
+    joint_sub.unregister()
+
+    pos = np.mean([[m.pose.pose.position.x, m.pose.pose.position.y, m.pose.pose.position.z]
+                   for m in odoms], axis=0)
+    rpys = np.array([tft.euler_from_quaternion(
+        [m.pose.pose.orientation.x, m.pose.pose.orientation.y,
+         m.pose.pose.orientation.z, m.pose.pose.orientation.w]) for m in odoms])
+    # average angles around the first sample to stay safe near +-pi
+    rpy = _wrap(rpys[0] + np.mean(_wrap(rpys - rpys[0]), axis=0))
+
+    joint_pos = np.zeros(len(JOINT_NAMES))
+    for j, name in enumerate(JOINT_NAMES):
+        vals = [m.position[m.name.index(name)] for m in joints if name in m.name]
+        if not vals:
+            raise RuntimeError(f"Joint '{name}' not found in {joint_topic} messages")
+        joint_pos[j] = np.mean(vals)
+
+    rospy.loginfo("Measured start state: pos=%s rpy=%s joint_pos=%s",
+                  np.array2string(pos, precision=3, suppress_small=True),
+                  np.array2string(rpy, precision=3, suppress_small=True),
+                  np.array2string(joint_pos, precision=3, suppress_small=True))
+    return {
+        'pos': pos,
+        'rpy': rpy,
+        'joint_pos': joint_pos,
+        'duration': 0.0,
+        'vel': np.zeros(3),
+        'omega': np.zeros(3),
+        'joint_vel': np.zeros(len(JOINT_NAMES)),
+    }
 
 
 def build_trajectory(keyframes):
@@ -130,6 +204,20 @@ def _make_msg(state, vel):
     return msg
 
 
+def _format_state(states, times, index):
+    return (
+        "step=%d/%d t=%.2fs pos=%s rpy=%s joint_pos=%s"
+        % (
+            index + 1,
+            len(states),
+            times[index],
+            np.array2string(states[index, 0:3], precision=3, suppress_small=True),
+            np.array2string(states[index, 3:6], precision=3, suppress_small=True),
+            np.array2string(states[index, 6:12], precision=3, suppress_small=True),
+        )
+    )
+
+
 def main():
     rospy.init_node('keyframe_tracking')
 
@@ -146,19 +234,105 @@ def main():
     keyframes = load_keyframes(yaml_path)
     rospy.loginfo(f"Loaded {len(keyframes)} keyframes")
 
+    mode = rospy.get_param('~mode', 'real')
+    if mode not in ('real', 'sim'):
+        rospy.logerr("Unknown mode '%s' (use real or sim)", mode)
+        return
+    rospy.loginfo("Mode: %s", mode)
+
+    robot_ns = rospy.get_param('~robot_ns', rospy.get_namespace().strip('/')) or 'dragon'
+    ns = '/' + robot_ns.strip('/')
+    rospy.loginfo("Robot namespace: %s", ns)
+
+    if mode == 'real':
+        odom_topic = rospy.get_param('~odom_topic', ns + '/uav/baselink/odom')
+        joint_topic = rospy.get_param('~joint_state_topic', ns + '/joint_states')
+        init_sample_num = int(rospy.get_param('~init_sample_num', 10))
+        try:
+            init_kf = collect_initial_keyframe(odom_topic, joint_topic, init_sample_num)
+        except RuntimeError as e:
+            rospy.logerr("%s", e)
+            return
+        # the measured state replaces the first YAML keyframe; the spline then reaches
+        # the second YAML keyframe within that keyframe's own duration, as in sim
+        keyframes[0] = init_kf
+        rospy.loginfo("Replaced keyframe 1 with measured state; reach keyframe 2 in %.1fs "
+                      "after takeoff.", keyframes[1]['duration'])
+
     states, vels, times = build_trajectory(keyframes)
     rospy.loginfo(f"Trajectory: {len(times)} steps, {times[-1]:.2f}s total")
 
-    pub = rospy.Publisher('/dragon/full_state_target', FullStateTarget, queue_size=10)
+    target_topic = rospy.get_param('~target_topic', ns + '/full_state_target')
+    command_ns = rospy.get_param('~command_ns', ns + '/teleop_command').rstrip('/')
+    pub = rospy.Publisher(target_topic, FullStateTarget, queue_size=10)
+
+    state = {
+        'started': False,
+        'paused': False,
+        'pause_reason': '',
+    }
+
+    def start_tracking_cb(_msg):
+        state['started'] = True
+        state['paused'] = False
+        state['pause_reason'] = ''
+        rospy.loginfo("Received takeoff command: start keyframe tracking.")
+
+    def pause_tracking(reason):
+        state['paused'] = True
+        state['pause_reason'] = reason
+        rospy.loginfo("Received %s command: pause target-state publishing.", reason)
+
+    def resume_tracking_cb(_msg):
+        state['paused'] = False
+        state['pause_reason'] = ''
+        rospy.loginfo("Received disable_pause_tracking command: resume target-state publishing.")
+
+    rospy.Subscriber(command_ns + '/start_tracking', Empty, start_tracking_cb, queue_size=1)
+    rospy.Subscriber(command_ns + '/pause_tracking', Empty,
+                     lambda _msg: pause_tracking('pause_tracking'), queue_size=1)
+    rospy.Subscriber(command_ns + '/disable_pause_tracking', Empty, resume_tracking_cb, queue_size=1)
+    rospy.Subscriber(command_ns + '/land', Empty, lambda _msg: pause_tracking('land'), queue_size=1)
+    rospy.Subscriber(command_ns + '/halt', Empty, lambda _msg: pause_tracking('halt'), queue_size=1)
+    rospy.Subscriber(command_ns + '/force_landing', Empty,
+                     lambda _msg: pause_tracking('force_landing'), queue_size=1)
+
+    rospy.loginfo("Target topic: %s", target_topic)
+    rospy.loginfo("Command namespace: %s", command_ns)
+    rospy.loginfo("Holding first keyframe until %s/takeoff is received.", command_ns)
     rospy.sleep(0.5)
 
     rate = rospy.Rate(FREQ)
-    rospy.loginfo("Tracking started...")
+    rospy.loginfo("Keyframe target publisher started.")
+    last_state_log_time = rospy.Time(0)
+    target_index = 0
     try:
-        for i in range(len(states)):
-            if rospy.is_shutdown():
+        while not rospy.is_shutdown():
+            now = rospy.Time.now()
+            if (now - last_state_log_time).to_sec() >= 5.0:
+                if state['paused']:
+                    rospy.loginfo("Target-state publishing paused by %s at %s",
+                                  state['pause_reason'], _format_state(states, times, target_index))
+                elif not state['started']:
+                    rospy.loginfo("Waiting for takeoff; holding %s", _format_state(states, times, 0))
+                else:
+                    rospy.loginfo("Current target state %s", _format_state(states, times, target_index))
+                last_state_log_time = now
+
+            if state['paused']:
+                rate.sleep()
+                continue
+
+            if not state['started']:
+                pub.publish(_make_msg(states[0], vels[0]))
+                rate.sleep()
+                continue
+
+            pub.publish(_make_msg(states[target_index], vels[target_index]))
+            target_index += 1
+            if target_index >= len(states):
+                rospy.loginfo("Finished keyframe trajectory.")
                 break
-            pub.publish(_make_msg(states[i], vels[i]))
             rate.sleep()
     finally:
         base_quat_w = np.array([tft.quaternion_from_euler(*rpy) for rpy in states[:, 3:6]])

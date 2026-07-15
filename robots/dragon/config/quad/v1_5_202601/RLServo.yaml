@@ -1,0 +1,101 @@
+servo_controller:
+
+  joints:
+    angle_sgn: 1
+    angle_scale: 0.00076699
+    zero_point_offset: 2047
+    torque_scale: 0.0106
+
+    filter_flag: true
+    sample_freq: 50.0
+    cutoff_freq: 10.0
+
+    simulation:
+      # Training actuator: XM430-W350-R link joint, 2:1 gear ratio.
+      # kp/kd are scaled from XC330-T181 by 8.2 / 0.76.
+      pid: {p: 6.39763, i: 0.0, d: 0.399211, i_clamp_min: -8.2, i_clamp_max: 8.2}
+      effort_limit: 8.2
+      # init_pose is consumed by gazebo_quick_init_pose.py. init_value is the
+      # first command sent to the effort controller, so keep it zero.
+      init_pose: 0.0
+      init_value: 0.0
+      type: effort_controllers/JointEffortController
+
+    controller1:
+      id: 1
+      name: joint1_pitch
+    controller2:
+      id: 0
+      name: joint1_yaw
+      simulation:
+        init_pose: 1.57
+        init_value: 0.0
+    controller3:
+      id: 5
+      name: joint2_pitch
+    controller4:
+      id: 4
+      name: joint2_yaw
+      simulation:
+        init_pose: 1.57
+        init_value: 0.0
+    controller5:
+      id: 9
+      name: joint3_pitch
+    controller6:
+      id: 8
+      name: joint3_yaw
+      simulation:
+        init_pose: 1.57
+        init_value: 0.0
+
+  gimbals:
+    no_real_state: false
+    angle_sgn: 1
+    angle_scale: 0.001534
+    zero_point_offset: 2047
+
+    simulation:
+      # Default to the training XM430-W210-T gimbal-roll actuator.
+      # gimbal pitch controllers override this below.
+      pid: {p: 2.34079, i: 0.0, d: 0.146053, i_clamp_min: -3.0, i_clamp_max: 3.0}
+      effort_limit: 3.0
+      init_value: 0.0
+      type: effort_controllers/JointEffortController
+
+    controller1:
+      id: 3
+      name: gimbal1_roll
+    controller2:
+      id: 2
+      name: gimbal1_pitch
+      simulation:
+        pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
+        effort_limit: 0.76
+    controller3:
+      id: 7
+      name: gimbal2_roll
+    controller4:
+      id: 6
+      name: gimbal2_pitch
+      simulation:
+        pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
+        effort_limit: 0.76
+    controller5:
+      id: 11
+      name: gimbal3_roll
+    controller6:
+      id: 10
+      name: gimbal3_pitch
+      simulation:
+        pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
+        effort_limit: 0.76
+    controller7:
+      id: 13
+      name: gimbal4_roll
+    controller8:
+      id: 12
+      name: gimbal4_pitch
+      simulation:
+        pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
+        effort_limit: 0.76
