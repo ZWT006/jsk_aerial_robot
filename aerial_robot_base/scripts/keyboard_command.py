@@ -19,10 +19,11 @@ Instruction:
 
 r:  arming motor (please do before takeoff)
 t:  takeoff
-l:  land
+l:  land (disabled for RL agent)
 f:  force landing
 h:  halt (force stop motor)
 O:  start tracking
+L:  land tracking (available for RL agent)
 o:  disable pause 
 p:  pause tracking
 0:  reset fault
@@ -144,7 +145,7 @@ if __name__=="__main__":
         print("ns:", robot_ns or '<global>')
 
         teleop_ns = topicName(robot_ns, "teleop_command")
-        land_pub = rospy.Publisher(topicName(teleop_ns, 'land'), Empty, queue_size=1)
+        # land_pub = rospy.Publisher(topicName(teleop_ns, 'land'), Empty, queue_size=1)
         halt_pub = rospy.Publisher(topicName(teleop_ns, 'halt'), Empty, queue_size=1)
         start_pub = rospy.Publisher(topicName(teleop_ns, 'start'), Empty, queue_size=1)
         takeoff_pub = rospy.Publisher(topicName(teleop_ns, 'takeoff'), Empty, queue_size=1)
@@ -152,6 +153,7 @@ if __name__=="__main__":
         start_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'start_tracking'), Empty, queue_size=1)
         disable_pause_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'disable_pause_tracking'), Empty, queue_size=1)
         pause_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'pause_tracking'), Empty, queue_size=1)
+        land_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'land_tracking'), Empty, queue_size=1)
         enable_gimbal_pub = rospy.Publisher(topicName(teleop_ns, 'enable_gimbal'), Empty, queue_size=1)
         enable_joint_pub = rospy.Publisher(topicName(teleop_ns, 'enable_joint'), Empty, queue_size=1)
         agentFaultRotor_pub = rospy.Publisher(topicName(teleop_ns, 'agentFaultRotor'), UInt32, queue_size=1)
@@ -187,7 +189,7 @@ if __name__=="__main__":
                 msg = ""
 
                 if key == 'l':
-                        land_pub.publish(Empty())
+                        # land_pub.publish(Empty())
                         msg = "===== send land command ====="
                 if key == 'r':
                         start_pub.publish(Empty())
@@ -214,8 +216,12 @@ if __name__=="__main__":
                         enable_joint_pub.publish(Empty())
                         msg = "===== send enable joint command ====="
                 if key == 'O': 
+                        takeoff_pub.publish(Empty())
                         start_tracking_pub.publish(Empty())
                         msg = "===== send start tracking command ====="
+                if key == 'L':
+                        land_tracking_pub.publish(Empty())
+                        msg = "===== send land_tracking command ====="
                 # if key == 'b':
                 #         brake_pub.publish(Empty())
                 #         msg = "===== send brake command ====="
@@ -269,49 +275,49 @@ if __name__=="__main__":
                 #                 fault_mask_str = faultMaskString(fault.data, rotorNum)
                 #                 msg = "=====\033[93m send fault command: \033[91m{}\033[93m (+{})\033[0m =====".format(
                 #                         fault_mask_str, faultMaskString(new_fault_mask, rotorNum))
-                if key == 'x':
-                        motion_start_pub.publish(Empty())
-                        msg = "===== send task-start command ====="
-                if key == 'w':
-                        nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_vel_x = xy_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send +x vel command ====="
-                if key == 's':
-                        nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_vel_x = -xy_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send -x vel command ====="
-                if key == 'a':
-                        nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_vel_y = xy_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send +y vel command ====="
-                if key == 'd':
-                        nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_vel_y = -xy_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send -y vel command ====="
-                if key == 'q':
-                        nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_omega_z = yaw_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send +yaw vel command ====="
-                if key == 'e':
-                        nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_omega_z = -yaw_vel
-                        msg = "===== send -yaw vel command ====="
-                        nav_pub.publish(nav_msg)
-                if key == '[':
-                        nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_vel_z = z_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send +z vel command ====="
-                if key == ']':
-                        nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
-                        nav_msg.target_vel_z = -z_vel
-                        nav_pub.publish(nav_msg)
-                        msg = "===== send -z vel command ====="
+                # if key == 'x':
+                #         motion_start_pub.publish(Empty())
+                #         msg = "===== send task-start command ====="
+                # if key == 'w':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_x = xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +x vel command ====="
+                # if key == 's':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_x = -xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send -x vel command ====="
+                # if key == 'a':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_y = xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +y vel command ====="
+                # if key == 'd':
+                #         nav_msg.pos_xy_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_y = -xy_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send -y vel command ====="
+                # if key == 'q':
+                #         nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_omega_z = yaw_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +yaw vel command ====="
+                # if key == 'e':
+                #         nav_msg.yaw_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_omega_z = -yaw_vel
+                #         msg = "===== send -yaw vel command ====="
+                #         nav_pub.publish(nav_msg)
+                # if key == '[':
+                #         nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_z = z_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send +z vel command ====="
+                # if key == ']':
+                #         nav_msg.pos_z_nav_mode = FlightNav.VEL_MODE
+                #         nav_msg.target_vel_z = -z_vel
+                #         nav_pub.publish(nav_msg)
+                #         msg = "===== send -z vel command ====="
                 if key == '\x03':
                         break
 

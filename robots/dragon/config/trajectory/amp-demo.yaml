@@ -21,6 +21,16 @@ keyframes:
     joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
     duration:  0.0
 
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 1.57]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  10.0
+
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  5.0
+
   # ── 1: sea horse ──────────────────────────────────────────────────────────
   # Links fold compactly; baselink tilts nose-down (pitch -0.3 rad).
   - pos:       [0.0, 0.0, 1.2]

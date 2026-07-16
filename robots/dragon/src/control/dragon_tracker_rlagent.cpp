@@ -155,11 +155,15 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   onnx_model_path = resolvePackagePath(onnx_model_path);
   ROS_INFO("[RL-Tracker] ONNX model path: %s", onnx_model_path.c_str());
 
-  std::string odom_topic;
   getParam<int>(rl_nh, "decimation", decimation_, 1);
   getParam<bool>(rl_nh, "ideal_obs", ideal_obs_, false);
-  getParam<std::string>(rl_nh, "ideal_obs_topic", odom_topic, "uav/baselink/odom");
+  getParam<bool>(rl_nh, "ideal_pos_obs", ideal_pos_obs_, true);
+  getParam<bool>(rl_nh, "ideal_quat_obs", ideal_quat_obs_, true);
+  getParam<bool>(rl_nh, "ideal_lin_vel_obs", ideal_lin_vel_obs_, true);
+  getParam<bool>(rl_nh, "ideal_ang_vel_obs", ideal_ang_vel_obs_, true);
+  getParam<std::string>(rl_nh, "ideal_obs_topic", ideal_obs_topic_, "uav/baselink/odom");
   getParam<int>(rl_nh, "ideal_delay", ideal_delay_, 0);
+  ideal_delay_ = std::max(0, ideal_delay_);
   getParam<bool>(rl_nh, "rlagent_verbose", verbose_, false);
   getParam<bool>(rl_nh, "rlagent_debug", debug_, false);
   getParam<bool>(rl_nh, "rlagent_forward_info", forward_info_, false);
@@ -311,8 +315,7 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
 
   // ROS I/O
   joint_state_sub_ = nh_.subscribe("joint_states", 1, &DragonTrackerRLAgent::jointStateCallback, this);
-  if (ideal_obs_)
-    odom_sub_ = nh_.subscribe(odom_topic, 1, &DragonTrackerRLAgent::odomCallback, this);
+  configureIdealObservationSubscriber();
   target_state_sub_ = nh_.subscribe(target_state_topic_, 10, &DragonTrackerRLAgent::targetStateCallback, this);
 
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
@@ -575,6 +578,53 @@ void DragonTrackerRLAgent::seedActionFromState()
   action_seeded_ = joint_catch_ && gimbal_catch_;
 }
 
+bool DragonTrackerRLAgent::usesIdealObservationSource() const
+{
+  return ideal_obs_ &&
+         (ideal_pos_obs_ || ideal_quat_obs_ || ideal_lin_vel_obs_ || ideal_ang_vel_obs_);
+}
+
+void DragonTrackerRLAgent::configureIdealObservationSubscriber()
+{
+  if (!usesIdealObservationSource())
+    {
+      if (ideal_odom_subscribed_) odom_sub_.shutdown();
+      ideal_odom_subscribed_ = false;
+      active_ideal_obs_topic_.clear();
+      odom_catch_ = false;
+      lin_vel_list_.clear();
+      ang_vel_list_.clear();
+      return;
+    }
+
+  if (ideal_obs_topic_.empty())
+    {
+      if (ideal_odom_subscribed_) odom_sub_.shutdown();
+      ideal_odom_subscribed_ = false;
+      active_ideal_obs_topic_.clear();
+      odom_catch_ = false;
+      lin_vel_list_.clear();
+      ang_vel_list_.clear();
+      ROS_ERROR("[RL-Tracker] ideal_obs is enabled, but rlagent/ideal_obs_topic is empty!");
+      return;
+    }
+
+  if (!ideal_odom_subscribed_ || active_ideal_obs_topic_ != ideal_obs_topic_)
+    {
+      odom_sub_.shutdown();
+      odom_sub_ = nh_.subscribe(ideal_obs_topic_, 1, &DragonTrackerRLAgent::odomCallback, this);
+      ideal_odom_subscribed_ = true;
+      active_ideal_obs_topic_ = ideal_obs_topic_;
+      odom_catch_ = false;
+      lin_vel_list_.clear();
+      ang_vel_list_.clear();
+      ROS_INFO("[RL-Tracker] Ideal observation source: %s "
+               "(pos=%d quat=%d lin_vel=%d ang_vel=%d delay=%d)",
+               ideal_obs_topic_.c_str(), ideal_pos_obs_, ideal_quat_obs_,
+               ideal_lin_vel_obs_, ideal_ang_vel_obs_, ideal_delay_);
+    }
+}
+
 void DragonTrackerRLAgent::buildObservation()
 {
   std::lock_guard<std::mutex> lock(data_mutex_);
@@ -584,7 +634,8 @@ void DragonTrackerRLAgent::buildObservation()
       catch_obs_ = false;
       return;
     }
-  if (ideal_obs_ && !odom_catch_)
+  const bool use_ideal_obs = usesIdealObservationSource();
+  if (use_ideal_obs && !odom_catch_)
     {
       ROS_WARN_THROTTLE(2.0, "[RL-Tracker] No odometry received yet!");
       catch_obs_ = false;
@@ -598,35 +649,37 @@ void DragonTrackerRLAgent::buildObservation()
     }
 
   // ---- fc pose / twist (dragon baselink == fc, the training IMU link) ----
-  tf::Vector3 lin_vel_world;
-  if (ideal_obs_)
+  fc_pos_ = estimator_->getPos(Frame::BASELINK, estimate_mode_);
+  tf::Matrix3x3 estimator_rot = estimator_->getOrientation(Frame::BASELINK, estimate_mode_);
+  estimator_rot.getRotation(fc_quat_);
+  tf::Vector3 lin_vel_world = estimator_->getVel(Frame::BASELINK, estimate_mode_);
+  ang_vel_body_ = estimator_->getAngularVel(Frame::BASELINK, estimate_mode_);
+
+  if (use_ideal_obs)
     {
-      fc_pos_ = tf::Vector3(odom_msg_.pose.pose.position.x, odom_msg_.pose.pose.position.y,
+      tf::Vector3 ideal_pos(odom_msg_.pose.pose.position.x, odom_msg_.pose.pose.position.y,
                             odom_msg_.pose.pose.position.z);
-      fc_quat_ = tf::Quaternion(odom_msg_.pose.pose.orientation.x, odom_msg_.pose.pose.orientation.y,
+      tf::Quaternion ideal_quat(odom_msg_.pose.pose.orientation.x, odom_msg_.pose.pose.orientation.y,
                                 odom_msg_.pose.pose.orientation.z, odom_msg_.pose.pose.orientation.w);
       // dragon odom convention: twist.linear world frame, twist.angular body frame
-      lin_vel_world = tf::Vector3(odom_msg_.twist.twist.linear.x, odom_msg_.twist.twist.linear.y,
-                                  odom_msg_.twist.twist.linear.z);
-      ang_vel_body_ = tf::Vector3(odom_msg_.twist.twist.angular.x, odom_msg_.twist.twist.angular.y,
-                                  odom_msg_.twist.twist.angular.z);
-      if (ideal_delay_ > 0)
+      tf::Vector3 ideal_lin_vel_world(odom_msg_.twist.twist.linear.x, odom_msg_.twist.twist.linear.y,
+                                      odom_msg_.twist.twist.linear.z);
+      tf::Vector3 ideal_ang_vel_body(odom_msg_.twist.twist.angular.x, odom_msg_.twist.twist.angular.y,
+                                     odom_msg_.twist.twist.angular.z);
+      if (ideal_delay_ > 0 && (ideal_lin_vel_obs_ || ideal_ang_vel_obs_))
         {
-          lin_vel_list_.push_back(lin_vel_world);
-          ang_vel_list_.push_back(ang_vel_body_);
-          lin_vel_world = lin_vel_list_.front();
-          ang_vel_body_ = ang_vel_list_.front();
+          lin_vel_list_.push_back(ideal_lin_vel_world);
+          ang_vel_list_.push_back(ideal_ang_vel_body);
+          ideal_lin_vel_world = lin_vel_list_.front();
+          ideal_ang_vel_body = ang_vel_list_.front();
           if (static_cast<int>(lin_vel_list_.size()) > ideal_delay_ + 1) lin_vel_list_.pop_front();
           if (static_cast<int>(ang_vel_list_.size()) > ideal_delay_ + 1) ang_vel_list_.pop_front();
         }
-    }
-  else
-    {
-      fc_pos_ = estimator_->getPos(Frame::BASELINK, estimate_mode_);
-      tf::Matrix3x3 rot = estimator_->getOrientation(Frame::BASELINK, estimate_mode_);
-      rot.getRotation(fc_quat_);
-      lin_vel_world = estimator_->getVel(Frame::BASELINK, estimate_mode_);
-      ang_vel_body_ = estimator_->getAngularVel(Frame::BASELINK, estimate_mode_);
+
+      if (ideal_pos_obs_) fc_pos_ = ideal_pos;
+      if (ideal_quat_obs_) fc_quat_ = ideal_quat;
+      if (ideal_lin_vel_obs_) lin_vel_world = ideal_lin_vel_world;
+      if (ideal_ang_vel_obs_) ang_vel_body_ = ideal_ang_vel_body;
     }
   fc_quat_.normalize();
   lin_vel_body_ = rotateByQuatInv(fc_quat_, lin_vel_world);
@@ -1021,6 +1074,10 @@ void DragonTrackerRLAgent::sendCmd()
   std::lock_guard<std::mutex> lock(data_mutex_);
   last_action_ = action_;
 
+  ros::Time now = ros::Time::now();
+  joint_cmd_.header.stamp = now;
+  gimbal_cmd_.header.stamp = now;
+
   size_t action_offset = 0;
   for (const auto& group : action_groups_)
     {
@@ -1048,10 +1105,6 @@ void DragonTrackerRLAgent::sendCmd()
   if (action_offset != action_size_)
     ROS_WARN_THROTTLE(5.0, "[RL-Tracker] Parsed action size (%zu) != ONNX output size (%zu)",
                       action_offset, action_size_);
-
-  ros::Time now = ros::Time::now();
-  joint_cmd_.header.stamp = now;
-  gimbal_cmd_.header.stamp = now;
 
   // `enable_gimbal_` intentionally gates thrust as a hardware safety interlock:
   // remote should enable joints/gimbals first, then arm, then takeoff.
@@ -1117,34 +1170,6 @@ void DragonTrackerRLAgent::publishDebug()
   std_msgs::Float32MultiArray obs_msg;
   obs_msg.data = observation_;
   obs_debug_pub_.publish(obs_msg);
-
-  std_msgs::Float32MultiArray err_msg;
-  err_msg.data = {static_cast<float>(pos_error_.x()), static_cast<float>(pos_error_.y()),
-                  static_cast<float>(pos_error_.z()), static_cast<float>(yaw_error_),
-                  static_cast<float>(joint_error_),
-                  static_cast<float>(target_state_fifo_.size()),
-                  tracking_ ? 1.0f : 0.0f};
-  track_error_pub_.publish(err_msg);
-
-  if (target_state_catch_ && !target_frames_.empty())
-    {
-      ros::Time now = ros::Time::now();
-      nav_msgs::Path path;
-      path.header.stamp = now;
-      path.header.frame_id = "world";
-      for (const auto& f : target_frames_)
-        {
-          geometry_msgs::PoseStamped pose;
-          pose.header = path.header;
-          pose.pose.position.x = f.pos.x();
-          pose.pose.position.y = f.pos.y();
-          pose.pose.position.z = f.pos.z();
-          tf::quaternionTFToMsg(f.quat, pose.pose.orientation);
-          path.poses.push_back(pose);
-        }
-      target_path_pub_.publish(path);
-      if (!path.poses.empty()) desired_pose_pub_.publish(path.poses.front());
-    }
 }
 
 // ================================ callbacks ==================================

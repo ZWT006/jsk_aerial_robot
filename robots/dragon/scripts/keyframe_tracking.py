@@ -204,6 +204,37 @@ def _make_msg(state, vel):
     return msg
 
 
+def build_landing_trajectory(start_state, start_vel, target_z, duration):
+    duration = max(float(duration), DT)
+    n_steps = max(1, int(round(duration * FREQ)))
+    start_state = np.asarray(start_state, dtype=float).copy()
+    start_vel = np.asarray(start_vel, dtype=float).copy()
+    target_z = float(target_z)
+
+    # Keep x/y, attitude, and yaw joints at the current target keyframe while
+    # descending. Fold the pitch joints to zero for a level landing shape.
+    vz0 = min(float(start_vel[2]), 0.0)
+    landing_states, landing_vels, landing_times = [], [], []
+    for k in range(n_steps + 1):
+        t = min(k * DT, duration)
+        state = start_state.copy()
+        vel = np.zeros_like(start_vel)
+        state[2] = _hermite(start_state[2], target_z, vz0, 0.0, duration, t)
+        vel[2] = _hermite_dot(start_state[2], target_z, vz0, 0.0, duration, t)
+        for joint_index, name in enumerate(JOINT_NAMES):
+            if 'pitch' not in name:
+                continue
+            state_index = 6 + joint_index
+            state[state_index] = _hermite(
+                start_state[state_index], 0.0, start_vel[state_index], 0.0, duration, t)
+            vel[state_index] = _hermite_dot(
+                start_state[state_index], 0.0, start_vel[state_index], 0.0, duration, t)
+        landing_states.append(state)
+        landing_vels.append(vel)
+        landing_times.append(t)
+    return np.array(landing_states), np.array(landing_vels), np.array(landing_times)
+
+
 def _format_state(states, times, index):
     return (
         "step=%d/%d t=%.2fs pos=%s rpy=%s joint_pos=%s"
@@ -261,6 +292,8 @@ def main():
 
     states, vels, times = build_trajectory(keyframes)
     rospy.loginfo(f"Trajectory: {len(times)} steps, {times[-1]:.2f}s total")
+    land_height = float(rospy.get_param('~land_height', 0.15))
+    land_duration = float(rospy.get_param('~land_duration', 10.0))
 
     target_topic = rospy.get_param('~target_topic', ns + '/full_state_target')
     command_ns = rospy.get_param('~command_ns', ns + '/teleop_command').rstrip('/')
@@ -270,17 +303,29 @@ def main():
         'started': False,
         'paused': False,
         'pause_reason': '',
+        'target_index': 0,
+        'landing': False,
+        'landed': False,
+        'landing_index': 0,
+        'landing_states': None,
+        'landing_vels': None,
+        'landing_times': None,
+        'land_done_logged': False,
     }
 
     def start_tracking_cb(_msg):
         state['started'] = True
         state['paused'] = False
         state['pause_reason'] = ''
+        state['landing'] = False
+        state['landed'] = False
         rospy.loginfo("Received takeoff command: start keyframe tracking.")
 
     def pause_tracking(reason):
         state['paused'] = True
         state['pause_reason'] = reason
+        state['landing'] = False
+        state['landed'] = False
         rospy.loginfo("Received %s command: pause target-state publishing.", reason)
 
     def resume_tracking_cb(_msg):
@@ -288,11 +333,39 @@ def main():
         state['pause_reason'] = ''
         rospy.loginfo("Received disable_pause_tracking command: resume target-state publishing.")
 
+    def land_cb(_msg):
+        if state['landing']:
+            rospy.loginfo("Landing target trajectory is already active.")
+            return
+        if state['landed'] and state['landing_states'] is not None:
+            start_state = state['landing_states'][-1]
+            start_vel = state['landing_vels'][-1]
+        else:
+            current_index = state['target_index'] - 1 if state['started'] else 0
+            current_index = min(max(current_index, 0), len(states) - 1)
+            start_state = states[current_index]
+            start_vel = vels[current_index]
+
+        landing_states, landing_vels, landing_times = build_landing_trajectory(
+            start_state, start_vel, land_height, land_duration)
+        state['landing_states'] = landing_states
+        state['landing_vels'] = landing_vels
+        state['landing_times'] = landing_times
+        state['landing_index'] = 0
+        state['landing'] = True
+        state['landed'] = False
+        state['land_done_logged'] = False
+        state['started'] = True
+        state['paused'] = False
+        state['pause_reason'] = ''
+        rospy.loginfo("Received land_tracking command: descend target from z=%.3f to z=%.3f in %.1fs.",
+                      start_state[2], land_height, land_duration)
+
     rospy.Subscriber(command_ns + '/start_tracking', Empty, start_tracking_cb, queue_size=1)
     rospy.Subscriber(command_ns + '/pause_tracking', Empty,
                      lambda _msg: pause_tracking('pause_tracking'), queue_size=1)
     rospy.Subscriber(command_ns + '/disable_pause_tracking', Empty, resume_tracking_cb, queue_size=1)
-    rospy.Subscriber(command_ns + '/land', Empty, lambda _msg: pause_tracking('land'), queue_size=1)
+    rospy.Subscriber(command_ns + '/land_tracking', Empty, land_cb, queue_size=1)
     rospy.Subscriber(command_ns + '/halt', Empty, lambda _msg: pause_tracking('halt'), queue_size=1)
     rospy.Subscriber(command_ns + '/force_landing', Empty,
                      lambda _msg: pause_tracking('force_landing'), queue_size=1)
@@ -305,21 +378,54 @@ def main():
     rate = rospy.Rate(FREQ)
     rospy.loginfo("Keyframe target publisher started.")
     last_state_log_time = rospy.Time(0)
-    target_index = 0
     try:
         while not rospy.is_shutdown():
             now = rospy.Time.now()
             if (now - last_state_log_time).to_sec() >= 5.0:
+                log_index = min(max(state['target_index'], 0), len(states) - 1)
                 if state['paused']:
                     rospy.loginfo("Target-state publishing paused by %s at %s",
-                                  state['pause_reason'], _format_state(states, times, target_index))
+                                  state['pause_reason'], _format_state(states, times, log_index))
+                elif state['landing']:
+                    landing_index = min(max(state['landing_index'], 0),
+                                        len(state['landing_states']) - 1)
+                    rospy.loginfo("Landing target state %s",
+                                  _format_state(state['landing_states'],
+                                                state['landing_times'],
+                                                landing_index))
+                elif state['landed']:
+                    rospy.loginfo("Holding landed target %s",
+                                  _format_state(state['landing_states'],
+                                                state['landing_times'],
+                                                len(state['landing_states']) - 1))
                 elif not state['started']:
                     rospy.loginfo("Waiting for takeoff; holding %s", _format_state(states, times, 0))
                 else:
-                    rospy.loginfo("Current target state %s", _format_state(states, times, target_index))
+                    rospy.loginfo("Current target state %s", _format_state(states, times, log_index))
                 last_state_log_time = now
 
             if state['paused']:
+                rate.sleep()
+                continue
+
+            if state['landing']:
+                landing_index = min(state['landing_index'], len(state['landing_states']) - 1)
+                pub.publish(_make_msg(state['landing_states'][landing_index],
+                                      state['landing_vels'][landing_index]))
+                if landing_index >= len(state['landing_states']) - 1:
+                    state['landing'] = False
+                    state['landed'] = True
+                    if not state['land_done_logged']:
+                        rospy.loginfo("Finished landing target descent; holding z=%.3f.",
+                                      state['landing_states'][-1, 2])
+                        state['land_done_logged'] = True
+                else:
+                    state['landing_index'] += 1
+                rate.sleep()
+                continue
+
+            if state['landed']:
+                pub.publish(_make_msg(state['landing_states'][-1], state['landing_vels'][-1]))
                 rate.sleep()
                 continue
 
@@ -328,9 +434,9 @@ def main():
                 rate.sleep()
                 continue
 
-            pub.publish(_make_msg(states[target_index], vels[target_index]))
-            target_index += 1
-            if target_index >= len(states):
+            pub.publish(_make_msg(states[state['target_index']], vels[state['target_index']]))
+            state['target_index'] += 1
+            if state['target_index'] >= len(states):
                 rospy.loginfo("Finished keyframe trajectory.")
                 break
             rate.sleep()

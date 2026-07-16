@@ -27,8 +27,6 @@
 #include <spinal/FourAxisCommand.h>
 #include <sensor_msgs/JointState.h>
 #include <nav_msgs/Odometry.h>
-#include <nav_msgs/Path.h>
-#include <geometry_msgs/PoseStamped.h>
 #include <aerial_robot_msgs/FullStateTarget.h>
 #include <aerial_robot_model/ReloadPolicy.h>
 #include <tf/transform_datatypes.h>
@@ -77,6 +75,8 @@ namespace aerial_robot_control
 
     // ----------- RL agent -----------
     void initRLAgent(std::string model_path);
+    bool usesIdealObservationSource() const;
+    void configureIdealObservationSubscriber();
     void buildObservation();
     void policyForward();
     void sendCmd();
@@ -107,9 +107,6 @@ namespace aerial_robot_control
     void enableGimbalCallback(const std_msgs::Empty::ConstPtr& msg);
     void forceLandingCallback(const std_msgs::Empty::ConstPtr& msg);
     void haltCallback(const std_msgs::Empty::ConstPtr& msg);
-    bool startTrackingCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
-    bool stopTrackingCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
-    bool resetTrackingCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
     bool reloadPolicyCallback(aerial_robot_model::ReloadPolicy::Request& req,
                               aerial_robot_model::ReloadPolicy::Response& res);
     bool reloadParamsCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
@@ -122,7 +119,7 @@ namespace aerial_robot_control
     ros::Publisher thrust_pub_, joint_pub_, gimbal_pub_;
     std::vector<ros::Publisher> joint_effort_pubs_, gimbal_effort_pubs_;
     ros::Publisher thrust_debug_pub_, joint_debug_pub_, gimbal_debug_pub_;
-    ros::Publisher obs_debug_pub_, target_path_pub_, desired_pose_pub_, track_error_pub_;
+    ros::Publisher obs_debug_pub_;
     ros::ServiceServer start_track_srv_, stop_track_srv_, reset_track_srv_;
     ros::ServiceServer reload_policy_srv_, reload_params_srv_;
 
@@ -202,6 +199,13 @@ namespace aerial_robot_control
     bool action_seeded_ = false;   // action_ holds a valid (measured-state) seed
     bool align_done_ = false;      // one-time startup alignment happened
     bool ideal_obs_ = false;
+    bool ideal_pos_obs_ = true;
+    bool ideal_quat_obs_ = true;
+    bool ideal_lin_vel_obs_ = true;
+    bool ideal_ang_vel_obs_ = true;
+    std::string ideal_obs_topic_;
+    std::string active_ideal_obs_topic_;
+    bool ideal_odom_subscribed_ = false;
     int ideal_delay_ = 0;
     std::deque<tf::Vector3> lin_vel_list_, ang_vel_list_;
     bool verbose_ = false;

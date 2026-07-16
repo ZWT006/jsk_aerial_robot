@@ -361,6 +361,7 @@ namespace aerial_robot_navigation
     ros::Publisher full_state_joint_control_pub_;
     ros::Subscriber full_state_target_sub_;
     int full_state_link_joint_num_;
+    bool enable_full_state_target_bridge_;
     std::vector<int> full_state_link_joint_indices_;
     std::mutex full_state_cog_mutex_;
 

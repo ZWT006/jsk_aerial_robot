@@ -59,7 +59,7 @@ Main subscriptions used by `dragon_tracker_rlagent`:
 ```text
 /dragon/joint_states
 /dragon/full_state_target                 # configurable by rlagent/target_state_topic
-/dragon/uav/baselink/odom                 # only when rlagent/ideal_obs=true
+/dragon/uav/baselink/odom                 # rlagent/ideal_obs_topic when any ideal_*_obs is enabled
 /dragon/teleop_command/enable_joint
 /dragon/teleop_command/enable_gimbal
 /dragon/teleop_command/halt

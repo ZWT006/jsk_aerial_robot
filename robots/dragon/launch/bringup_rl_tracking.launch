@@ -21,7 +21,7 @@
   <arg name="robot_model_suffix" value="_dji_on" if="$(eval arg('new_model') and arg('dji_on') and arg('battery'))" />
   <arg name="robot_model_suffix" value="_dji_on_no_bat" if="$(eval arg('new_model') and arg('dji_on') and not arg('battery'))" />
   <arg name="estimate_mode" default="1" />
-  <arg name="sim_estimate_mode" default="1" />
+  <arg name="sim_estimate_mode" default="2" />
   <arg name="takeoff_height" default="0" />
 
   <arg name="worldtype" default="$(find aerial_robot_simulation)/gazebo_model/world/empty.world" />
@@ -58,7 +58,7 @@
     ###########  Servo Config  ###########
     <group ns="servo_controller" clear_params="true">
     </group>
-    <rosparam file="$(arg config_dir)/RLServo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
+    <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
     <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('real_machine') and not arg('simulation'))"/>
 
     ###########  Battery Config  ###########
@@ -78,6 +78,7 @@
     ###########  Navigation ###########
     <param name="flight_navigation_plugin_name" value="aerial_robot_navigation/dragon_navigation" />
     <rosparam file="$(arg config_dir)/NavigationConfig.yaml" command="load" />
+    <param name="navigation/enable_full_state_target_bridge" value="false" />
     <param name="navigation/takeoff_height" value="$(arg takeoff_height)" if="$(eval arg('takeoff_height') > 0)"/>
   </group>
 

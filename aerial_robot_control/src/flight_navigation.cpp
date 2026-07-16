@@ -27,7 +27,8 @@ BaseNavigator::BaseNavigator():
   joy_stick_prev_time_(0),
   teleop_flag_(true),
   land_check_start_time_(0),
-  full_state_link_joint_num_(0)
+  full_state_link_joint_num_(0),
+  enable_full_state_target_bridge_(true)
 {
   setNaviState(ARM_OFF_STATE);
 }
@@ -89,10 +90,21 @@ void BaseNavigator::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
     full_state_link_joint_num_ = full_state_link_joint_indices_.size();
     ROS_INFO("[BaseNavigator] Full state target enabled: %d link joints", full_state_link_joint_num_);
 
-    flight_nav_pub_ = nh_.advertise<aerial_robot_msgs::FlightNav>("uav/nav", 1);
-    target_rotation_motion_pub_ = nh_.advertise<nav_msgs::Odometry>("target_rotation_motion", 1);
-    full_state_joint_control_pub_ = nh_.advertise<sensor_msgs::JointState>("joints_ctrl", 1);
-    full_state_target_sub_ = nh_.subscribe("full_state_target", 1, &BaseNavigator::fullStateTargetCallback, this);
+    ros::NodeHandle navigation_nh(nh_, "navigation");
+    navigation_nh.param("enable_full_state_target_bridge",
+                        enable_full_state_target_bridge_, true);
+
+    if (enable_full_state_target_bridge_)
+    {
+      flight_nav_pub_ = nh_.advertise<aerial_robot_msgs::FlightNav>("uav/nav", 1);
+      target_rotation_motion_pub_ = nh_.advertise<nav_msgs::Odometry>("target_rotation_motion", 1);
+      full_state_joint_control_pub_ = nh_.advertise<sensor_msgs::JointState>("joints_ctrl", 1);
+      full_state_target_sub_ = nh_.subscribe("full_state_target", 1, &BaseNavigator::fullStateTargetCallback, this);
+    }
+    else
+    {
+      ROS_INFO("[BaseNavigator] Full state target bridge disabled.");
+    }
   }
 }
 
