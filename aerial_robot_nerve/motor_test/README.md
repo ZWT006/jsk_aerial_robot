@@ -46,3 +46,95 @@
 
 Low PWM: 1000 (start with 1050)
 High PWM: 1900
+
+## Servo response logging
+
+`servo_response_node` collects joint/gimbal response data for system
+identification. It is robot-agnostic: pass the robot namespace, state topic,
+command topic, and axis names from launch.
+
+### Signal sets
+
+Use only these three `signal_type` values:
+
+- `step`: step-response set. The command holds each level for `cmd_period`,
+  jumps by `step_height`, sweeps the full `[-position_limit, position_limit]`
+  range, and then reverses.
+- `sweep`: identification set. This is the beetle_omni SweepSinWave: a sine
+  wave with short-long-short period sweep and a matching low-high-low amplitude
+  envelope. Use `cmd_period` for the shortest period and `period_scale` for the
+  longest period.
+- `multi`: validation set. This fixed sequence runs sine, triangle, square,
+  trapezoid, and sine-with-triangle-envelope waves. Only `cmd_period` is tuned.
+
+### Common parameters
+
+- `robot_ns`: robot namespace. Relative topics become `/robot_ns/topic`.
+- `state_topic`: feedback `sensor_msgs/JointState` topic.
+- `command_topic`: position command `sensor_msgs/JointState` topic, usually
+  `gimbals_ctrl` or `joints_ctrl`.
+- `axis_names`: ordered target joint/gimbal names. If empty, the first
+  `axis_count` feedback axes are used.
+- `enabled_axes`: per-axis mask. Disabled axes are still published at
+  `default_position`.
+- `default_position`: scalar or array added to the generated relative command.
+- `control_freq`: command publish rate [Hz].
+- `duration`: data collection duration [s].
+- `position_limit`: symmetric work range [rad].
+- `enable_save`, `save_path`, `file_prefix`: CSV logging controls.
+- `effort_ctrl`: if false, publish position command to `command_topic`; if true,
+  publish Float64 effort commands using `effort_topics` or auto-built
+  `servo_controller/<servo_group>/controllerN/simulation/command` topics.
+
+### Beetle examples
+
+StepSet:
+
+```bash
+roslaunch motor_test servo_response.launch \
+  robot_ns:=beetle_omni \
+  signal_type:=step \
+  cmd_period:=0.2 \
+  step_height:=0.15 \
+  enable_save:=true \
+  save_path:=/tmp
+```
+
+IdentSet:
+
+```bash
+roslaunch motor_test servo_response.launch \
+  robot_ns:=beetle_omni \
+  signal_type:=sweep \
+  cmd_period:=0.04 \
+  period_scale:=50 \
+  enable_save:=true \
+  save_path:=/tmp
+```
+
+ValSet:
+
+```bash
+roslaunch motor_test servo_response.launch \
+  robot_ns:=beetle_omni \
+  signal_type:=multi \
+  cmd_period:=4.0 \
+  enable_save:=true \
+  save_path:=/tmp
+```
+
+DRAGON gimbal example:
+
+```bash
+roslaunch motor_test servo_response.launch \
+  robot_ns:=dragon \
+  servo_group:=gimbals \
+  command_topic:=gimbals_ctrl \
+  axis_names:="[gimbal2_roll, gimbal2_pitch, gimbal1_roll, gimbal3_roll, gimbal1_pitch, gimbal3_pitch, gimbal4_roll, gimbal4_pitch]" \
+  enabled_axes:="[true, true, true, true, true, true, true, true]" \
+  position_limit:=3.14 \
+  enable_save:=true
+```
+
+For DRAGON joints, use `servo_group:=joints`, `command_topic:=joints_ctrl`, and
+the joint name list used by that platform.

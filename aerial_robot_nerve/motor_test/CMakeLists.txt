@@ -5,6 +5,7 @@ add_compile_options(-std=c++17)
 
 find_package(catkin REQUIRED COMPONENTS
   roscpp
+  sensor_msgs
   std_msgs
   std_srvs
   geometry_msgs
@@ -15,7 +16,7 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(Boost REQUIRED COMPONENTS system)
 
 catkin_package(
-  CATKIN_DEPENDS roscpp std_msgs std_srvs geometry_msgs takasako_sps spinal
+  CATKIN_DEPENDS roscpp sensor_msgs std_msgs std_srvs geometry_msgs takasako_sps spinal
 )
 
 include_directories(
@@ -23,16 +24,24 @@ include_directories(
 )
 
 add_executable(motor_test_node src/motor_test.cpp)
+add_executable(servo_response_node src/servo_response.cpp)
 
 target_link_libraries(motor_test_node
    ${catkin_LIBRARIES}
  )
+target_link_libraries(servo_response_node
+   ${catkin_LIBRARIES}
+ )
 
-install(TARGETS  motor_test_node
+install(TARGETS  motor_test_node servo_response_node
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
   )
 
 install(DIRECTORY scripts
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
   USE_SOURCE_PERMISSIONS
+)
+
+install(DIRECTORY launch
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

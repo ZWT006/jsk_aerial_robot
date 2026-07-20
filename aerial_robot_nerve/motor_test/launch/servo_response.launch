@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Robot namespace. Relative topics below are resolved under /$(arg robot_ns). -->
+  <arg name="robot_ns" default="" />
+
+  <!-- Feedback and command topics.
+       state_topic: sensor_msgs/JointState feedback.
+       command_topic: sensor_msgs/JointState position command, e.g. gimbals_ctrl or joints_ctrl.
+       debug_topic: same command echoed for logging/plotting; set empty to disable. -->
+  <arg name="state_topic" default="joint_states" />
+  <arg name="command_topic" default="gimbals_ctrl" />
+  <arg name="debug_topic" default="$(arg command_topic)_debug" />
+
+  <!-- Servo group name used when effort_ctrl=true and effort topics are auto-built
+       from servo_controller/<servo_group>/controllerN/simulation/command. -->
+  <arg name="servo_group" default="gimbals" />
+
+  <!-- Axis layout.
+       axis_count: number of controlled axes when axis_names is empty.
+       axis_names: ordered joint/gimbal names to read from joint_states and publish in commands.
+       enabled_axes: per-axis mask; disabled axes are still published at default_position.
+       default_position: scalar or array added to the generated relative signal. -->
+  <arg name="axis_count" default="4" />
+  <arg name="axis_names" default="[]" />
+  <arg name="enabled_axes" default="[true, true, true, true]" />
+  <arg name="default_position" default="0.0" />
+
+  <!-- Signal sets:
+       step  : staircase step response over [-position_limit, position_limit].
+       sweep : identification sweep sine copied from the beetle_omni SweepSinWave.
+       multi : validation sequence of sine, triangle, square, trapezoid, and sine-with-triangle-envelope. -->
+  <arg name="signal_type" default="sweep" />
+
+  <!-- Common signal parameters.
+       control_freq: command rate [Hz].
+       duration: collection time [s].
+       position_limit: symmetric work range [rad].
+       cmd_period: hold time for step, base period for sweep/multi [s]. -->
+  <arg name="control_freq" default="200" />
+  <arg name="duration" default="200" />
+  <arg name="position_limit" default="3.5" />
+  <arg name="cmd_period" default="0.04" />
+
+  <!-- sweep only: max period = period_scale * cmd_period. -->
+  <arg name="period_scale" default="50" />
+
+  <!-- step only: position increment [rad] per cmd_period. -->
+  <arg name="step_height" default="0.15" />
+
+  <!-- CSV output. Data columns are time, feedback stamps, measured positions, and commands. -->
+  <arg name="enable_save" default="false" />
+  <arg name="save_path" default="/tmp" />
+  <arg name="file_prefix" default="servo_response" />
+
+  <!-- Optional simulation effort control.
+       effort_ctrl=false publishes JointState position command to command_topic.
+       effort_ctrl=true publishes Float64 effort to effort_topics, or auto-built servo_controller topics.
+       kp/kd/effort_limit may be scalar or array; effort_limit=[] means no clamp unless loaded from servo params. -->
+  <arg name="effort_ctrl" default="false" />
+  <arg name="kp" default="0.45" />
+  <arg name="kd" default="0.008" />
+  <arg name="effort_limit" default="[]" />
+  <arg name="effort_topics" default="[]" />
+
+  <node pkg="motor_test" type="servo_response_node" name="servo_response" output="screen">
+    <param name="robot_ns" value="$(arg robot_ns)" />
+    <param name="state_topic" value="$(arg state_topic)" />
+    <param name="command_topic" value="$(arg command_topic)" />
+    <param name="debug_topic" value="$(arg debug_topic)" />
+    <param name="servo_group" value="$(arg servo_group)" />
+
+    <param name="axis_count" value="$(arg axis_count)" />
+    <rosparam param="axis_names" subst_value="true">$(arg axis_names)</rosparam>
+    <rosparam param="enabled_axes" subst_value="true">$(arg enabled_axes)</rosparam>
+    <rosparam param="default_position" subst_value="true">$(arg default_position)</rosparam>
+
+    <param name="signal_type" value="$(arg signal_type)" />
+    <param name="control_freq" value="$(arg control_freq)" />
+    <param name="duration" value="$(arg duration)" />
+    <param name="position_limit" value="$(arg position_limit)" />
+    <param name="cmd_period" value="$(arg cmd_period)" />
+    <param name="period_scale" value="$(arg period_scale)" />
+    <param name="step_height" value="$(arg step_height)" />
+
+    <param name="enable_save" value="$(arg enable_save)" />
+    <param name="save_path" value="$(arg save_path)" />
+    <param name="file_prefix" value="$(arg file_prefix)" />
+
+    <param name="effort_ctrl" value="$(arg effort_ctrl)" />
+    <rosparam param="kp" subst_value="true">$(arg kp)</rosparam>
+    <rosparam param="kd" subst_value="true">$(arg kd)</rosparam>
+    <rosparam param="effort_limit" subst_value="true">$(arg effort_limit)</rosparam>
+    <rosparam param="effort_topics" subst_value="true">$(arg effort_topics)</rosparam>
+  </node>
+</launch>
