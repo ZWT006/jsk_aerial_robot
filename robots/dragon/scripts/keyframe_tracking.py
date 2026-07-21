@@ -54,6 +54,53 @@ def _wrap(a):
     return (np.asarray(a, dtype=float) + np.pi) % (2 * np.pi) - np.pi
 
 
+def _normalize(v, eps=1e-12):
+    v = np.asarray(v, dtype=float)
+    n = np.linalg.norm(v)
+    if n < eps:
+        return v * 0.0
+    return v / n
+
+
+def _normalize_quat(q):
+    q = np.asarray(q, dtype=float)
+    n = np.linalg.norm(q)
+    if n < 1e-12:
+        return np.array([0.0, 0.0, 0.0, 1.0])
+    return q / n
+
+
+def _minimal_rotation_quat(src_vec, dst_vec):
+    src = _normalize(src_vec)
+    dst = _normalize(dst_vec)
+    cross = np.cross(src, dst)
+    cross_norm = np.linalg.norm(cross)
+    dot = np.clip(np.dot(src, dst), -1.0, 1.0)
+    if cross_norm < 1e-12:
+        if dot > 0.0:
+            return np.array([0.0, 0.0, 0.0, 1.0]), np.zeros(3), 0.0
+        axis = _normalize(np.cross(src, np.array([1.0, 0.0, 0.0])))
+        if np.linalg.norm(axis) < 1e-12:
+            axis = _normalize(np.cross(src, np.array([0.0, 1.0, 0.0])))
+        angle = np.pi
+        return _normalize_quat(tft.quaternion_about_axis(angle, axis)), axis, angle
+
+    axis = cross / cross_norm
+    angle = np.arctan2(cross_norm, dot)
+    return _normalize_quat(tft.quaternion_about_axis(angle, axis)), axis, angle
+
+
+def _level_orientation_quat(start_rpy):
+    q_start = _normalize_quat(tft.quaternion_from_euler(*start_rpy))
+    rot = tft.quaternion_matrix(q_start)[:3, :3]
+    body_z_w = rot.dot(np.array([0.0, 0.0, 1.0]))
+    q_level_delta, axis, angle = _minimal_rotation_quat(body_z_w, np.array([0.0, 0.0, 1.0]))
+    q_target = _normalize_quat(tft.quaternion_multiply(q_level_delta, q_start))
+    if np.dot(q_start, q_target) < 0.0:
+        q_target = -q_target
+    return q_start, q_target, axis, angle
+
+
 def _hermite(p0, p1, m0, m1, T, t):
     s = t / T
     return ((2*s**3 - 3*s**2 + 1)*p0 + (s**3 - 2*s**2 + s)*T*m0 +
@@ -180,7 +227,7 @@ def build_trajectory(keyframes):
     return np.array(states), np.array(vels), np.array(times)
 
 
-def _make_msg(state, vel):
+def _make_msg(state, vel, orientation_quat=None):
     msg = FullStateTarget()
     msg.header.stamp = rospy.Time.now()
     msg.header.frame_id = 'world'
@@ -191,7 +238,8 @@ def _make_msg(state, vel):
 
     p = odom.pose.pose
     p.position.x, p.position.y, p.position.z = state[0], state[1], state[2]
-    q = tft.quaternion_from_euler(state[3], state[4], state[5])
+    q = (_normalize_quat(orientation_quat) if orientation_quat is not None
+         else tft.quaternion_from_euler(state[3], state[4], state[5]))
     p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w = q
 
     tw = odom.twist.twist
@@ -211,16 +259,24 @@ def build_landing_trajectory(start_state, start_vel, target_z, duration):
     start_vel = np.asarray(start_vel, dtype=float).copy()
     target_z = float(target_z)
 
-    # Keep x/y, attitude, and yaw joints at the current target keyframe while
-    # descending. Fold the pitch joints to zero for a level landing shape.
+    # Keep x/y and yaw joints at the current target keyframe while descending.
+    # Level the root orientation by the shortest rotation that makes body z
+    # vertical, then interpolate directly in quaternion space.
     vz0 = min(float(start_vel[2]), 0.0)
-    landing_states, landing_vels, landing_times = [], [], []
+    q_start, q_target, level_axis, level_angle = _level_orientation_quat(start_state[3:6])
+    landing_states, landing_vels, landing_times, landing_quats = [], [], [], []
     for k in range(n_steps + 1):
         t = min(k * DT, duration)
+        s = t / duration
+        smooth_s = 3.0 * s**2 - 2.0 * s**3
+        smooth_s_dot = (6.0 * s - 6.0 * s**2) / duration
+        q = _normalize_quat(tft.quaternion_slerp(q_start, q_target, smooth_s))
         state = start_state.copy()
         vel = np.zeros_like(start_vel)
         state[2] = _hermite(start_state[2], target_z, vz0, 0.0, duration, t)
         vel[2] = _hermite_dot(start_state[2], target_z, vz0, 0.0, duration, t)
+        state[3:6] = _wrap(tft.euler_from_quaternion(q))
+        vel[3:6] = level_axis * level_angle * smooth_s_dot
         for joint_index, name in enumerate(JOINT_NAMES):
             if 'pitch' not in name:
                 continue
@@ -232,10 +288,18 @@ def build_landing_trajectory(start_state, start_vel, target_z, duration):
         landing_states.append(state)
         landing_vels.append(vel)
         landing_times.append(t)
-    return np.array(landing_states), np.array(landing_vels), np.array(landing_times)
+        landing_quats.append(q)
+    return (
+        np.array(landing_states),
+        np.array(landing_vels),
+        np.array(landing_times),
+        np.array(landing_quats),
+    )
 
 
-def _format_state(states, times, index):
+def _format_state(states, times, index, orientation_quats=None):
+    rpy = (np.array(tft.euler_from_quaternion(orientation_quats[index]))
+           if orientation_quats is not None else states[index, 3:6])
     return (
         "step=%d/%d t=%.2fs pos=%s rpy=%s joint_pos=%s"
         % (
@@ -243,7 +307,7 @@ def _format_state(states, times, index):
             len(states),
             times[index],
             np.array2string(states[index, 0:3], precision=3, suppress_small=True),
-            np.array2string(states[index, 3:6], precision=3, suppress_small=True),
+            np.array2string(rpy, precision=3, suppress_small=True),
             np.array2string(states[index, 6:12], precision=3, suppress_small=True),
         )
     )
@@ -310,6 +374,7 @@ def main():
         'landing_states': None,
         'landing_vels': None,
         'landing_times': None,
+        'landing_quats': None,
         'land_done_logged': False,
     }
 
@@ -346,11 +411,12 @@ def main():
             start_state = states[current_index]
             start_vel = vels[current_index]
 
-        landing_states, landing_vels, landing_times = build_landing_trajectory(
+        landing_states, landing_vels, landing_times, landing_quats = build_landing_trajectory(
             start_state, start_vel, land_height, land_duration)
         state['landing_states'] = landing_states
         state['landing_vels'] = landing_vels
         state['landing_times'] = landing_times
+        state['landing_quats'] = landing_quats
         state['landing_index'] = 0
         state['landing'] = True
         state['landed'] = False
@@ -358,7 +424,8 @@ def main():
         state['started'] = True
         state['paused'] = False
         state['pause_reason'] = ''
-        rospy.loginfo("Received land_tracking command: descend target from z=%.3f to z=%.3f in %.1fs.",
+        rospy.loginfo("Received land_tracking command: descend target from z=%.3f to z=%.3f "
+                      "and level body-z with minimal quaternion rotation in %.1fs.",
                       start_state[2], land_height, land_duration)
 
     rospy.Subscriber(command_ns + '/start_tracking', Empty, start_tracking_cb, queue_size=1)
@@ -392,12 +459,14 @@ def main():
                     rospy.loginfo("Landing target state %s",
                                   _format_state(state['landing_states'],
                                                 state['landing_times'],
-                                                landing_index))
+                                                landing_index,
+                                                state['landing_quats']))
                 elif state['landed']:
                     rospy.loginfo("Holding landed target %s",
                                   _format_state(state['landing_states'],
                                                 state['landing_times'],
-                                                len(state['landing_states']) - 1))
+                                                len(state['landing_states']) - 1,
+                                                state['landing_quats']))
                 elif not state['started']:
                     rospy.loginfo("Waiting for takeoff; holding %s", _format_state(states, times, 0))
                 else:
@@ -411,7 +480,8 @@ def main():
             if state['landing']:
                 landing_index = min(state['landing_index'], len(state['landing_states']) - 1)
                 pub.publish(_make_msg(state['landing_states'][landing_index],
-                                      state['landing_vels'][landing_index]))
+                                      state['landing_vels'][landing_index],
+                                      state['landing_quats'][landing_index]))
                 if landing_index >= len(state['landing_states']) - 1:
                     state['landing'] = False
                     state['landed'] = True
@@ -425,7 +495,9 @@ def main():
                 continue
 
             if state['landed']:
-                pub.publish(_make_msg(state['landing_states'][-1], state['landing_vels'][-1]))
+                pub.publish(_make_msg(state['landing_states'][-1],
+                                      state['landing_vels'][-1],
+                                      state['landing_quats'][-1]))
                 rate.sleep()
                 continue
 

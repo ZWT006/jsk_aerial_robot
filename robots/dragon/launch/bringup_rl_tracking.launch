@@ -58,8 +58,9 @@
     ###########  Servo Config  ###########
     <group ns="servo_controller" clear_params="true">
     </group>
-    <!-- <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/> -->
+    <!-- <rosparam file="$(arg config_dir)/RLServo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/> -->
     <rosparam file="$(arg config_dir)/RLServoAsyn.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/>
+    <!-- <rosparam file="$(arg config_dir)/pidGimbalServo.yaml" command="load" if="$(eval arg('simulation') and not arg('real_machine'))"/> -->
     <rosparam file="$(arg config_dir)/Servo.yaml" command="load" if="$(eval arg('real_machine') and not arg('simulation'))"/>
 
     ###########  Battery Config  ###########
@@ -129,6 +130,7 @@
   </include>
 
   <rosparam file="$(find aerial_robot_simulation)/config/Gazebo.yaml" command="load" ns="$(arg robot_ns)" if="$(eval arg('simulation') and not arg('real_machine') and not arg('mujoco'))" />
+  <param name="$(arg robot_ns)/joint_state_controller/publish_rate" value="200" if="$(eval arg('simulation') and not arg('real_machine') and not arg('mujoco'))" />
 
   <node name="$(anon urdf_spawner)" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
         if="$(eval arg('simulation') and not arg('real_machine') and not arg('mujoco'))"
