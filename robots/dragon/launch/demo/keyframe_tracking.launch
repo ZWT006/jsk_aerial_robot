@@ -1,14 +1,16 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- <arg name="config" default="$(find dragon)/config/trajectory/classic-demo.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-demo.yaml" /> -->
-  <arg name="config" default="$(find dragon)/config/trajectory/amp-demo.yaml" />
+  <arg name="config" default="$(find dragon)/config/trajectory/amp-move-demo.yaml" />
+  <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-dance.yaml" /> -->
   <arg name="robot_ns" default="dragon" />
   <arg name="mode" default="real" />  <!-- real | sim -->
+  <arg name="visualize" default="true" />
 
   <node pkg="dragon" type="keyframe_tracking.py" name="keyframe_tracking" output="screen">
     <param name="config" value="$(arg config)" />
     <param name="robot_ns" value="$(arg robot_ns)" />
     <param name="mode" value="$(arg mode)" />
+    <param name="visualize" value="$(arg visualize)" />
   </node>
 </launch>

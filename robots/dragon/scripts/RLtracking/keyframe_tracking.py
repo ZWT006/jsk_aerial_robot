@@ -32,6 +32,12 @@ YAML format:
         vel: [vx, vy, vz]      # optional: velocity at this keyframe
         omega: [wx, wy, wz]    # optional: angular velocity at this keyframe
         joint_vel: [...]       # optional: joint velocity at this keyframe
+      - duration: 5.0          # transition time from the previous keyframe
+        geometry:
+          type: dragon_dance
+          start_phase: 0.0
+          cycles: 1
+          duration: 60.0       # geometry motion duration, or use motion_duration
 """
 
 import sys
@@ -40,14 +46,21 @@ import yaml
 import numpy as np
 import rospy
 from aerial_robot_msgs.msg import FullStateTarget
+from geometry_msgs.msg import Point
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Empty
+from std_msgs.msg import ColorRGBA, Empty
+from visualization_msgs.msg import Marker, MarkerArray
 import tf.transformations as tft
+
+from geometry_trajectories import make_geometry_trajectory
 
 FREQ = 40.0
 DT = 1.0 / FREQ
 JOINT_NAMES = ['joint1_pitch', 'joint1_yaw', 'joint2_pitch', 'joint2_yaw', 'joint3_pitch', 'joint3_yaw']
+LINK_LENGTH = 0.474
+INTER_JOINT_X_OFFSET = 0.02575
+FC_OFFSET_IN_LINK2 = np.array([0.3245, -0.0010, 0.0280])
 
 
 def _wrap(a):
@@ -68,6 +81,30 @@ def _normalize_quat(q):
     if n < 1e-12:
         return np.array([0.0, 0.0, 0.0, 1.0])
     return q / n
+
+
+def _rot_y(angle):
+    c = np.cos(angle)
+    s = np.sin(angle)
+    return np.array([
+        [c, 0.0, s],
+        [0.0, 1.0, 0.0],
+        [-s, 0.0, c],
+    ])
+
+
+def _rot_z(angle):
+    c = np.cos(angle)
+    s = np.sin(angle)
+    return np.array([
+        [c, -s, 0.0],
+        [s, c, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+
+def _compose_pose(pos_a, rot_a, pos_b, rot_b):
+    return pos_a + rot_a.dot(pos_b), rot_a.dot(rot_b)
 
 
 def _minimal_rotation_quat(src_vec, dst_vec):
@@ -113,18 +150,45 @@ def _hermite_dot(p0, p1, m0, m1, T, t):
             ((6*s - 6*s**2) / T)*p1 + (3*s**2 - 2*s)*m1)
 
 
+def _as_array(value, length, name):
+    arr = np.array(value, dtype=float)
+    if arr.shape != (length,):
+        raise ValueError("%s must have %d values" % (name, length))
+    return arr
+
+
+def _is_geometry_item(item):
+    return 'geometry' in item
+
+
+def _normalize_keyframe(kf):
+    return {
+        'pos':       _as_array(kf['pos'],       3, 'pos'),
+        'rpy':       _as_array(kf['rpy'],       3, 'rpy'),
+        'joint_pos': _as_array(kf['joint_pos'], len(JOINT_NAMES), 'joint_pos'),
+        'duration':  float(kf.get('duration', 0.0)),
+        'vel':       _as_array(kf.get('vel',       [0., 0., 0.]), 3, 'vel'),
+        'omega':     _as_array(kf.get('omega',     [0., 0., 0.]), 3, 'omega'),
+        'joint_vel': _as_array(kf.get('joint_vel', [0.] * len(JOINT_NAMES)),
+                               len(JOINT_NAMES), 'joint_vel'),
+    }
+
+
+def _normalize_trajectory_item(item):
+    if _is_geometry_item(item):
+        if item['geometry'] is None:
+            raise ValueError("geometry item must contain a geometry spec")
+        return {
+            'geometry': dict(item['geometry']),
+            'duration': float(item.get('transition_duration', item.get('duration', 0.0))),
+        }
+    return _normalize_keyframe(item)
+
+
 def load_keyframes(yaml_path):
     with open(yaml_path) as f:
         data = yaml.safe_load(f)
-    return [{
-        'pos':       np.array(kf['pos'],       dtype=float),
-        'rpy':       np.array(kf['rpy'],       dtype=float),
-        'joint_pos': np.array(kf['joint_pos'], dtype=float),
-        'duration':  float(kf.get('duration', 0.0)),
-        'vel':       np.array(kf.get('vel',       [0., 0., 0.]), dtype=float),
-        'omega':     np.array(kf.get('omega',     [0., 0., 0.]), dtype=float),
-        'joint_vel': np.array(kf.get('joint_vel', [0.] * 6),    dtype=float),
-    } for kf in data['keyframes']]
+    return [_normalize_trajectory_item(item) for item in data['keyframes']]
 
 
 def collect_initial_keyframe(odom_topic, joint_topic, n_samples, timeout=10.0):
@@ -187,41 +251,100 @@ def collect_initial_keyframe(odom_topic, joint_topic, n_samples, timeout=10.0):
     }
 
 
-def build_trajectory(keyframes):
-    n_seg = len(keyframes) - 1
-    assert n_seg >= 1, "Need at least 2 keyframes"
+def _state_from_keyframe(kf):
+    return np.r_[kf['pos'], kf['rpy'], kf['joint_pos']]
 
-    # Unwrap RPY across keyframes to avoid discontinuities at ±π
-    rpys = np.array([kf['rpy'] for kf in keyframes])
-    for i in range(1, len(rpys)):
-        rpys[i] = rpys[i - 1] + _wrap(rpys[i] - rpys[i - 1])
+
+def _vel_from_keyframe(kf):
+    return np.r_[kf['vel'], kf['omega'], kf['joint_vel']]
+
+
+def _keyframe_from_state(state, vel=None):
+    state = np.asarray(state, dtype=float)
+    if vel is None:
+        vel = np.zeros_like(state)
+    vel = np.asarray(vel, dtype=float)
+    return {
+        'pos': state[0:3].copy(),
+        'rpy': _wrap(state[3:6]),
+        'joint_pos': state[6:12].copy(),
+        'duration': 0.0,
+        'vel': vel[0:3].copy(),
+        'omega': vel[3:6].copy(),
+        'joint_vel': vel[6:12].copy(),
+    }
+
+
+def _append_hermite_segment(states, vels, times, t0, kf0, kf1, duration, segment_label):
+    T = float(duration)
+    if T <= 0.0:
+        raise ValueError("%s duration must be > 0" % segment_label)
+
+    p0 = _state_from_keyframe(kf0)
+    p1 = _state_from_keyframe(kf1)
+    p1[3:6] = p0[3:6] + _wrap(p1[3:6] - p0[3:6])
+    m0 = _vel_from_keyframe(kf0)
+    m1 = _vel_from_keyframe(kf1)
+
+    n_steps = max(1, int(round(T * FREQ)))
+    for k in range(n_steps):
+        t = k * DT
+        state = _hermite(p0, p1, m0, m1, T, t)
+        state[3:6] = _wrap(state[3:6])
+        states.append(state)
+        vels.append(_hermite_dot(p0, p1, m0, m1, T, t))
+        times.append(t0 + t)
+
+    final_state = p1.copy()
+    final_state[3:6] = _wrap(final_state[3:6])
+    return _keyframe_from_state(final_state, m1), t0 + T
+
+
+def build_trajectory(items):
+    assert len(items) >= 2, "Need at least 2 trajectory entries"
+    if _is_geometry_item(items[0]):
+        raise ValueError("First trajectory entry must be a normal keyframe")
 
     states, vels, times = [], [], []
+    current_kf = items[0]
     t0 = 0.0
 
-    for seg in range(n_seg):
-        kf0, kf1 = keyframes[seg], keyframes[seg + 1]
-        T = kf1['duration']
-        assert T > 0, f"Keyframe {seg + 1} duration must be > 0"
+    for index, item in enumerate(items[1:], start=1):
+        if _is_geometry_item(item):
+            geometry = make_geometry_trajectory(item['geometry'])
+            geom_states, geom_vels, geom_times = geometry.sample(FREQ)
+            geom_start = _keyframe_from_state(geom_states[0], geom_vels[0])
+            transition_duration = float(item.get('duration', 0.0))
 
-        p0 = np.r_[kf0['pos'], rpys[seg],     kf0['joint_pos']]
-        p1 = np.r_[kf1['pos'], rpys[seg + 1], kf1['joint_pos']]
-        m0 = np.r_[kf0['vel'], kf0['omega'],  kf0['joint_vel']]
-        m1 = np.r_[kf1['vel'], kf1['omega'],  kf1['joint_vel']]
+            if transition_duration > 0.0:
+                current_kf, t0 = _append_hermite_segment(
+                    states, vels, times, t0, current_kf, geom_start,
+                    transition_duration, "Geometry entry %d transition" % index)
+                start_sample = 0
+            elif transition_duration < 0.0:
+                raise ValueError("Geometry entry %d transition duration must be >= 0" % index)
+            else:
+                if not states:
+                    states.append(_state_from_keyframe(current_kf))
+                    vels.append(_vel_from_keyframe(current_kf))
+                    times.append(t0)
+                    start_sample = 1
+                else:
+                    start_sample = 0
 
-        n_steps = max(1, int(round(T * FREQ)))
-        for k in range(n_steps):
-            t = k * DT
-            s = _hermite(p0, p1, m0, m1, T, t)
-            s[3:6] = _wrap(s[3:6])
-            states.append(s)
-            vels.append(_hermite_dot(p0, p1, m0, m1, T, t))
-            times.append(t0 + t)
-        t0 += T
+            for k in range(start_sample, len(geom_times) - 1):
+                states.append(geom_states[k])
+                vels.append(geom_vels[k])
+                times.append(t0 + geom_times[k])
+            t0 += geom_times[-1]
+            current_kf = _keyframe_from_state(geom_states[-1], geom_vels[-1])
+        else:
+            current_kf, t0 = _append_hermite_segment(
+                states, vels, times, t0, current_kf, item,
+                item['duration'], "Keyframe %d" % index)
 
-    # Append final keyframe
-    states.append(np.r_[keyframes[-1]['pos'], _wrap(rpys[-1]), keyframes[-1]['joint_pos']])
-    vels.append(np.zeros(12))
+    states.append(_state_from_keyframe(current_kf))
+    vels.append(_vel_from_keyframe(current_kf))
     times.append(t0)
 
     return np.array(states), np.array(vels), np.array(times)
@@ -250,6 +373,117 @@ def _make_msg(state, vel, orientation_quat=None):
     msg.joint_state.position = state[6:12].tolist()
     msg.joint_state.velocity = vel[6:12].tolist()
     return msg
+
+
+def _point_msg(pos):
+    point = Point()
+    point.x, point.y, point.z = pos
+    return point
+
+
+def _color(r, g, b, a):
+    color = ColorRGBA()
+    color.r = r
+    color.g = g
+    color.b = b
+    color.a = a
+    return color
+
+
+def _state_quat(state, orientation_quat=None):
+    if orientation_quat is not None:
+        return _normalize_quat(orientation_quat)
+    return _normalize_quat(tft.quaternion_from_euler(state[3], state[4], state[5]))
+
+
+def _target_visual_points(state, orientation_quat=None):
+    fc_pos = np.asarray(state[0:3], dtype=float)
+    fc_quat = _state_quat(state, orientation_quat)
+    fc_rot = tft.quaternion_matrix(fc_quat)[:3, :3]
+    joints = np.asarray(state[6:12], dtype=float)
+
+    pitch1 = _rot_y(joints[0])
+    yaw1 = _rot_z(joints[1])
+    link1_to_fc_rot = pitch1.dot(yaw1)
+    link1_to_fc_pos = (
+        np.array([LINK_LENGTH, 0.0, 0.0]) +
+        pitch1.dot(np.array([2.0 * INTER_JOINT_X_OFFSET, 0.0, 0.0]) +
+                   yaw1.dot(FC_OFFSET_IN_LINK2))
+    )
+
+    link_pos = fc_pos - fc_rot.dot(link1_to_fc_rot.T).dot(link1_to_fc_pos)
+    link_rot = fc_rot.dot(link1_to_fc_rot.T)
+    first_link_head = link_pos.copy()
+
+    for link_index in range(3):
+        pitch = joints[2 * link_index]
+        yaw = joints[2 * link_index + 1]
+        link_pos, link_rot = _compose_pose(
+            link_pos, link_rot, np.array([LINK_LENGTH, 0.0, 0.0]), _rot_y(pitch))
+        link_pos, link_rot = _compose_pose(
+            link_pos, link_rot,
+            np.array([2.0 * INTER_JOINT_X_OFFSET, 0.0, 0.0]), _rot_z(yaw))
+
+    last_link_tail = link_pos + link_rot.dot(np.array([LINK_LENGTH, 0.0, 0.0]))
+    return fc_pos, fc_quat, fc_rot, first_link_head, last_link_tail
+
+
+class TargetVisualizer:
+    def __init__(self, marker_pub, frame_id='world'):
+        self.marker_pub = marker_pub
+        self.frame_id = frame_id
+
+    def publish(self, state, orientation_quat=None, stamp=None):
+        if stamp is None:
+            stamp = rospy.Time.now()
+
+        fc_pos, fc_quat, fc_rot, first_head, last_tail = _target_visual_points(
+            state, orientation_quat)
+
+        markers = MarkerArray()
+        markers.markers.extend([
+            self._sphere(0, 'target_fc', fc_pos, stamp, 0.075, (0.0, 0.55, 1.0, 0.95)),
+            self._sphere(1, 'target_link1_head', first_head, stamp, 0.075, (0.0, 1.0, 0.25, 0.95)),
+            self._sphere(2, 'target_link4_tail', last_tail, stamp, 0.075, (1.0, 0.15, 0.85, 0.95)),
+            self._axis_arrow(3, 'target_fc_axis_x', fc_pos, fc_rot[:, 0], stamp,
+                             0.30, (1.0, 0.15, 0.1, 0.9)),
+            self._axis_arrow(4, 'target_fc_axis_y', fc_pos, fc_rot[:, 1], stamp,
+                             0.22, (0.0, 0.9, 0.15, 0.9)),
+            self._axis_arrow(5, 'target_fc_axis_z', fc_pos, fc_rot[:, 2], stamp,
+                             0.22, (0.2, 0.45, 1.0, 0.9)),
+        ])
+        self.marker_pub.publish(markers)
+
+    def _base_marker(self, marker_id, ns, stamp):
+        marker = Marker()
+        marker.header.stamp = stamp
+        marker.header.frame_id = self.frame_id
+        marker.ns = ns
+        marker.id = marker_id
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        return marker
+
+    def _sphere(self, marker_id, ns, pos, stamp, diameter, rgba):
+        marker = self._base_marker(marker_id, ns, stamp)
+        marker.type = Marker.SPHERE
+        marker.pose.position = _point_msg(pos)
+        marker.scale.x = diameter
+        marker.scale.y = diameter
+        marker.scale.z = diameter
+        marker.color = _color(*rgba)
+        return marker
+
+    def _axis_arrow(self, marker_id, ns, origin, axis, stamp, length, rgba):
+        marker = self._base_marker(marker_id, ns, stamp)
+        marker.type = Marker.ARROW
+        axis = _normalize(axis)
+        marker.points = [_point_msg(origin), _point_msg(origin + length * axis)]
+        marker.scale.x = 0.025
+        marker.scale.y = 0.055
+        marker.scale.z = 0.055
+        marker.color = _color(*rgba)
+        return marker
 
 
 def build_landing_trajectory(start_state, start_vel, target_z, duration):
@@ -326,8 +560,18 @@ def main():
     npz_path  = os.path.splitext(yaml_path)[0] + '.npz'
 
     rospy.loginfo(f"Config: {yaml_path}")
-    keyframes = load_keyframes(yaml_path)
-    rospy.loginfo(f"Loaded {len(keyframes)} keyframes")
+    try:
+        trajectory_items = load_keyframes(yaml_path)
+    except (KeyError, TypeError, ValueError) as e:
+        rospy.logerr("Failed to load trajectory config: %s", e)
+        return
+    rospy.loginfo(f"Loaded {len(trajectory_items)} trajectory entries")
+    if len(trajectory_items) < 2:
+        rospy.logerr("Need at least 2 trajectory entries")
+        return
+    if _is_geometry_item(trajectory_items[0]):
+        rospy.logerr("The first trajectory entry must be a normal keyframe")
+        return
 
     mode = rospy.get_param('~mode', 'real')
     if mode not in ('real', 'sim'):
@@ -348,13 +592,17 @@ def main():
         except RuntimeError as e:
             rospy.logerr("%s", e)
             return
-        # the measured state replaces the first YAML keyframe; the spline then reaches
-        # the second YAML keyframe within that keyframe's own duration, as in sim
-        keyframes[0] = init_kf
-        rospy.loginfo("Replaced keyframe 1 with measured state; reach keyframe 2 in %.1fs "
-                      "after takeoff.", keyframes[1]['duration'])
+        # the measured state replaces the first YAML keyframe; the trajectory then
+        # reaches the second entry within that entry's own transition duration
+        trajectory_items[0] = init_kf
+        rospy.loginfo("Replaced keyframe 1 with measured state; reach entry 2 in %.1fs "
+                      "after takeoff.", trajectory_items[1]['duration'])
 
-    states, vels, times = build_trajectory(keyframes)
+    try:
+        states, vels, times = build_trajectory(trajectory_items)
+    except (AssertionError, ValueError) as e:
+        rospy.logerr("Failed to build trajectory: %s", e)
+        return
     rospy.loginfo(f"Trajectory: {len(times)} steps, {times[-1]:.2f}s total")
     land_height = float(rospy.get_param('~land_height', 0.15))
     land_duration = float(rospy.get_param('~land_duration', 10.0))
@@ -362,6 +610,23 @@ def main():
     target_topic = rospy.get_param('~target_topic', ns + '/full_state_target')
     command_ns = rospy.get_param('~command_ns', ns + '/teleop_command').rstrip('/')
     pub = rospy.Publisher(target_topic, FullStateTarget, queue_size=10)
+    target_visualizer = None
+    if (rospy.get_param('~visualize', False) or
+            rospy.get_param('~visualize', False)):
+        marker_topic = rospy.get_param(
+            '~target_visualization_topic', ns + '/keyframe_tracking/target_visualization')
+        vis_frame_id = rospy.get_param('~target_visualization_frame_id', 'world')
+        target_visualizer = TargetVisualizer(
+            rospy.Publisher(marker_topic, MarkerArray, queue_size=1),
+            vis_frame_id,
+        )
+        rospy.loginfo("Target visualization enabled: markers=%s", marker_topic)
+
+    def publish_target_state(target_state, target_vel, orientation_quat=None):
+        msg = _make_msg(target_state, target_vel, orientation_quat)
+        pub.publish(msg)
+        if target_visualizer is not None:
+            target_visualizer.publish(target_state, orientation_quat, msg.header.stamp)
 
     state = {
         'started': False,
@@ -479,9 +744,9 @@ def main():
 
             if state['landing']:
                 landing_index = min(state['landing_index'], len(state['landing_states']) - 1)
-                pub.publish(_make_msg(state['landing_states'][landing_index],
-                                      state['landing_vels'][landing_index],
-                                      state['landing_quats'][landing_index]))
+                publish_target_state(state['landing_states'][landing_index],
+                                     state['landing_vels'][landing_index],
+                                     state['landing_quats'][landing_index])
                 if landing_index >= len(state['landing_states']) - 1:
                     state['landing'] = False
                     state['landed'] = True
@@ -495,18 +760,18 @@ def main():
                 continue
 
             if state['landed']:
-                pub.publish(_make_msg(state['landing_states'][-1],
-                                      state['landing_vels'][-1],
-                                      state['landing_quats'][-1]))
+                publish_target_state(state['landing_states'][-1],
+                                     state['landing_vels'][-1],
+                                     state['landing_quats'][-1])
                 rate.sleep()
                 continue
 
             if not state['started']:
-                pub.publish(_make_msg(states[0], vels[0]))
+                publish_target_state(states[0], vels[0])
                 rate.sleep()
                 continue
 
-            pub.publish(_make_msg(states[state['target_index']], vels[state['target_index']]))
+            publish_target_state(states[state['target_index']], vels[state['target_index']])
             state['target_index'] += 1
             if state['target_index'] >= len(states):
                 rospy.loginfo("Finished keyframe trajectory.")

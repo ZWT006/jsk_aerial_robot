@@ -10,13 +10,15 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # policy-2026-07-16_19-25-55-30k.onnx   #
 # policy-2026-07-18_21-58-48-20k.onnx   #
 # policy-2026-07-19_13-36-15-30k.onnx   # 
-# policy-2026-07-20_13-47-15-30k.onnx   #
+# policy-2026-07-20_13-47-15-30k.onnx   # second baseline, successful with different gimbal/joint parameters
+# policy-2026-07-22_11-33-00-30k.onnx   #
+# policy-2026-07-23_21-18-16-25k.onnx   #
 
-# rosservice call /beetle_omni/rlagent/reload_policy \
-#   "policy_name: 'policy/policy-2026-06-13_09-46-13-30000.onnx'"
+# rosservice call /dragon/rlagent/reload_policy \
+#   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-07-20_13-47-15-30k.onnx"
+  onnx_model_path: "policy/policy-2026-07-23_21-18-16-25k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
