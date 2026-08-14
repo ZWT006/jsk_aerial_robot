@@ -18,7 +18,7 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-07-23_21-18-16-25k.onnx"
+  onnx_model_path: "policy/policy-2026-07-10_13-50-35-20.5k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -87,7 +87,7 @@ rlagent:
     dof_vel: 0.5
     lin_vel: 1.0
     ang_vel: 0.2
-    joint_act: 0.15
+    joint_act: 0.25
     gimbal_act: 0.25
     thrust_act: 0.5
     clip_observation: 100.0
