@@ -1,0 +1,52 @@
+# Classic DRAGON demo trajectory (baselink = fc frame)
+# Motion sequence from simple_demo.py + transformation_demo.py:
+#   nominal → sea horse → nominal → mode model → nominal
+#   → spiral → nominal → reverse reset → nominal
+#   → yaw rotation 360° in 12s (CircleTrajectory radius=0 equivalent)
+#
+# pos:       [x, y, z]             world-frame position of fc (baselink), metres
+# rpy:       [roll, pitch, yaw]    orientation of fc, radians
+# joint_pos: [joint1_pitch, joint1_yaw, joint2_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
+# duration:  time (s) from the PREVIOUS keyframe (first entry is ignored)
+#
+# Optional (default 0 → robot pauses at keyframe):
+#   vel, omega, joint_vel
+
+
+
+keyframes:
+  # ── 0: nominal hover (start) ──────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  0.0
+
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  5.0
+
+  # ── 3: Tranvase Instability ────────────────────────────────────────────────────────
+
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    duration:  15.0
+
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, -1.57, 0.0, -1.57, 0.0, -1.57]
+    duration:  15.0
+
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, -1.57, 0.0, -1.57, 0.0, -1.57]
+    duration:  5.0
+
+  # ── 11: Landing reset ──────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 0.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, -1.57, 0.0, -1.57, 0.0, -1.57]
+    duration:  8.0
+
+
