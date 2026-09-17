@@ -1,13 +1,23 @@
 servo_controller:
-
+  auto_configure_direct_servo: true
+  direct_servo_config_timeout: 10.0
+  servo_feedback_frequency: 200 # keep previous dragon settings
+  servo_target_watchdog: 0.1
+  dynamixel_ttl_rs485_mixed: true
+  
   joints:
     angle_sgn: 1
     angle_scale: 0.00076699
+    velocity_scale: 0.01199041 # 0.229 [rev/min] -> rad/s, scaled by 2:1 pulley
     zero_point_offset: 2047
-    torque_scale: 0.0106
+    torque_scale: 0.00384286 # 0.7142857 Nm/ A * 0.00296 A/bit * 2 (pulley)
+    mode: MIT # Current-based Position control mode
+    bus_type: R
+    mit_kp_si: 4.8309
+    mit_kd_si: 0.3075
 
-    filter_flag: true
-    sample_freq: 50.0
+    filter_flag: false
+    sample_freq: 200.0
     cutoff_freq: 10.0
 
     simulation:
@@ -53,7 +63,10 @@ servo_controller:
     no_real_state: false
     angle_sgn: 1
     angle_scale: 0.001534
+    velocity_scale: 0.02398082 # 0.229 [rev/min] -> rad/s
     zero_point_offset: 2047
+    mode: DP # Position control mode
+    bus_type: T
 
     simulation:
       # Default to the training XM430-W210-T gimbal-roll actuator.

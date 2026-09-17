@@ -6,8 +6,8 @@ servo_controller:
     zero_point_offset: 2047
     torque_scale: 0.0106
 
-    filter_flag: true
-    sample_freq: 50.0
+    filter_flag: false
+    sample_freq: 200.0
     cutoff_freq: 10.0
 
     simulation:
