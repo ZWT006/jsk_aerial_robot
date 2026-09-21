@@ -1,11 +1,15 @@
 aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 
+# roslaunch dragon bringup_rl_tracking.launch rm:=False sim:=True headless:=False
+# roslaunch dragon bringup_rl_tracking.launch rm:=True sim:=False headless:=True
+# roslaunch motor_test servo_response.launch robot_ns:=dragon
+
 # Whole-body target-state tracking RL agent for DRAGON.
 # Target states are supplied online as aerial_robot_msgs/FullStateTarget. The
 # agent keeps a FIFO of the latest target frames and flattens it into the
 # training-style target observation block.
 
-# policy-2026-07-10_13-50-35-20.5k.onnx # first baseline, successful deploy with OCP: joint parameters
+# policy-2026-07-10_13-50-35-20.5k.onnx # first baseline, (dragon-demo.yaml) successful deploy with OCP: joint parameters
 # policy-2026-07-15_21-53-07-20k.onnx   # large odom noise and delay, cannot work with sim_estimate_mode = 1
 # policy-2026-07-16_19-25-55-30k.onnx   #
 # policy-2026-07-18_21-58-48-20k.onnx   #
@@ -14,11 +18,15 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # policy-2026-07-22_11-33-00-30k.onnx   #
 # policy-2026-07-23_21-18-16-25k.onnx   #
 
+
+# policy-2026-09-18_22-19-13-27k.onnx   # amp with diverse trajectories
+# policy-2026-09-18_22-19-13-30k.onnx
+
 # rosservice call /dragon/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-07-10_13-50-35-20.5k.onnx"
+  onnx_model_path: "policy/policy-2026-09-20_19-23-25-30k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -53,6 +61,8 @@ rlagent:
   ideal_lin_vel_obs: false
   ideal_ang_vel_obs: true
   ideal_delay: 4
+  # Put previous policy-step positions into dof_vel observation slots.
+  replace_dof_vel_with_last_pos: false
 
   # ---- actuator layout (sim order; must match training) ----
   joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
@@ -87,7 +97,7 @@ rlagent:
     dof_vel: 0.5
     lin_vel: 1.0
     ang_vel: 0.2
-    joint_act: 0.25
+    joint_act: 0.15
     gimbal_act: 0.25
     thrust_act: 0.5
     clip_observation: 100.0

@@ -17,12 +17,12 @@ Instruction:
 
 ---------------------------
 
-r:  arming motor (please do before takeoff)
+r:  enable joint/gimbal control and torque, then arm motors
 t:  takeoff
 l:  land (disabled for RL agent)
 f:  force landing
 h:  halt (force stop motor)
-O:  start tracking
+O:  enable joint/gimbal control and torque, take off, and start tracking
 L:  land tracking (available for RL agent)
 o:  disable pause 
 p:  pause tracking
@@ -154,8 +154,6 @@ if __name__=="__main__":
         disable_pause_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'disable_pause_tracking'), Empty, queue_size=1)
         pause_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'pause_tracking'), Empty, queue_size=1)
         land_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'land_tracking'), Empty, queue_size=1)
-        enable_gimbal_pub = rospy.Publisher(topicName(teleop_ns, 'enable_gimbal'), Empty, queue_size=1)
-        enable_joint_pub = rospy.Publisher(topicName(teleop_ns, 'enable_joint'), Empty, queue_size=1)
         agentFaultRotor_pub = rospy.Publisher(topicName(teleop_ns, 'agentFaultRotor'), UInt32, queue_size=1)
         spinalFaultRotor_pub = rospy.Publisher(topicName(robot_ns, 'spinal_fault_rotor_mask'), UInt32, queue_size=1)
         brake_pub = rospy.Publisher(topicName(teleop_ns, 'brake'), Empty, queue_size=1)
@@ -209,12 +207,6 @@ if __name__=="__main__":
                 if key == 'p':
                         pause_tracking_pub.publish(Empty())
                         msg = "===== send (tracking) pause command ====="
-                if key == 'G':
-                        enable_gimbal_pub.publish(Empty())
-                        msg = "===== send enable gimbal command ====="
-                if key == 'J':
-                        enable_joint_pub.publish(Empty())
-                        msg = "===== send enable joint command ====="
                 if key == 'O': 
                         takeoff_pub.publish(Empty())
                         start_tracking_pub.publish(Empty())

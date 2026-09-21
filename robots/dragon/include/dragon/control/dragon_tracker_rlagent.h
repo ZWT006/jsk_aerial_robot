@@ -103,8 +103,7 @@ namespace aerial_robot_control
     void targetStateCallback(const aerial_robot_msgs::FullStateTarget::ConstPtr& msg);
     void brakeCallback(const std_msgs::Empty::ConstPtr& msg);
     void unbrakeCallback(const std_msgs::Empty::ConstPtr& msg);
-    void enableJointCallback(const std_msgs::Empty::ConstPtr& msg);
-    void enableGimbalCallback(const std_msgs::Empty::ConstPtr& msg);
+    void enableJointAndGimbalCallback(const std_msgs::Empty::ConstPtr& msg);
     void forceLandingCallback(const std_msgs::Empty::ConstPtr& msg);
     void haltCallback(const std_msgs::Empty::ConstPtr& msg);
     bool reloadPolicyCallback(aerial_robot_model::ReloadPolicy::Request& req,
@@ -115,7 +114,8 @@ namespace aerial_robot_control
 
   private:
     ros::Subscriber joint_state_sub_, odom_sub_, target_state_sub_, brake_sub_, unbrake_sub_;
-    ros::Subscriber enable_joint_sub_, enable_gimbal_sub_, force_landing_sub_, halt_sub_;
+    ros::Subscriber enable_all_arm_sub_, enable_all_tracking_sub_;
+    ros::Subscriber force_landing_sub_, halt_sub_;
     ros::Publisher thrust_pub_, joint_pub_, gimbal_pub_;
     std::vector<ros::Publisher> joint_effort_pubs_, gimbal_effort_pubs_;
     ros::Publisher thrust_debug_pub_, joint_debug_pub_, gimbal_debug_pub_;
@@ -145,6 +145,10 @@ namespace aerial_robot_control
     // ----------- measured states (sim order) -----------
     std::vector<float> joint_pos_, joint_vel_;
     std::vector<float> gimbal_pos_, gimbal_vel_;
+    // Previous policy-step positions used in the joint_vel/gimbal_vel observation
+    // slots when velocity feedback is replaced by position history.
+    std::vector<float> last_joint_pos_, last_gimbal_pos_;
+    bool last_dof_pos_initialized_ = false;
     ros::Time joint_state_stamp_;
     bool joint_catch_ = false;
     bool gimbal_catch_ = false;
@@ -203,6 +207,7 @@ namespace aerial_robot_control
     bool ideal_quat_obs_ = true;
     bool ideal_lin_vel_obs_ = true;
     bool ideal_ang_vel_obs_ = true;
+    bool replace_dof_vel_with_last_pos_ = false;
     std::string ideal_obs_topic_;
     std::string active_ideal_obs_topic_;
     bool ideal_odom_subscribed_ = false;

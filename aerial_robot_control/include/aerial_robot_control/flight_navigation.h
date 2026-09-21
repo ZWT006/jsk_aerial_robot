@@ -375,6 +375,8 @@ namespace aerial_robot_navigation
     void fullStateTargetCallback(const aerial_robot_msgs::FullStateTargetConstPtr& msg);
 
     virtual void halt() {}
+    virtual bool prepareForArming() { return true; }
+    virtual bool prepareForTakeoff() { return true; }
     virtual void reset()
     {
       estimator_->setSensorFusionFlag(false);
@@ -408,6 +410,11 @@ namespace aerial_robot_navigation
 
       if(getNaviState() == ARM_ON_STATE)
         {
+          if(!prepareForTakeoff())
+            {
+              ROS_ERROR("Flight Navigation: pre-takeoff preparation failed");
+              return;
+            }
           setNaviState(TAKEOFF_STATE);
           ROS_INFO("Takeoff state");
         }
@@ -420,6 +427,12 @@ namespace aerial_robot_navigation
       if(!estimator_->getStateStatus(State::Z_BASE, estimate_mode_))
         {
           ROS_ERROR("Flight Navigation: No correct sensor fusion for z(altitude), can not fly");
+          return;
+        }
+
+      if(!prepareForArming())
+        {
+          ROS_ERROR("Flight Navigation: pre-arming preparation failed");
           return;
         }
 

@@ -289,6 +289,7 @@ protected:
   map<string, ros::Publisher> servo_target_pos_pubs_;
   map<string, ros::ServiceServer> servo_enable_srvs_;
   map<string, ros::Publisher> servo_enable_pubs_;
+  map<string, bool> startup_torque_enable_;
   map<string, vector<ros::Publisher> > servo_target_pos_sim_pubs_; // TODO: should be actionlib, trajectory controller
 
   map<string, ServoGroupHandler> servos_handler_;
@@ -306,6 +307,7 @@ protected:
   void servoCtrlCallback(const sensor_msgs::JointStateConstPtr& joints_ctrl_msg, const std::string& servo_group_name);
   void servoTorqueCtrlCallback(const sensor_msgs::JointStateConstPtr& joints_ctrl_msg, const std::string& servo_group_name);
   bool servoEnableCallback(std_srvs::SetBool::Request &req, std_srvs::SetBool::Response &res, const std::string& servo_group_name);
+  void applyStartupTorqueConfig();
   void uavInfoCallback(const spinal::UavInfoConstPtr& uav_msg);
   void directServoConfigTimerCallback(const ros::WallTimerEvent& event);
 

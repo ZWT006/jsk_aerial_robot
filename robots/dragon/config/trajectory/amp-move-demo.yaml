@@ -1,8 +1,8 @@
-# Classic DRAGON demo trajectory (baselink = fc frame)
-# Motion sequence from simple_demo.py + transformation_demo.py:
-#   nominal → sea horse → nominal → mode model → nominal
-#   → spiral → nominal → reverse reset → nominal
-#   → yaw rotation 360° in 12s (CircleTrajectory radius=0 equivalent)
+# DRAGON move demo trajectory (baselink = fc frame)
+# Reconstructed from amp-dragon-move-target-192s.npz (40 Hz, 187 s):
+#   takeoff hover → sea horse → spiral → V model
+#   → V-model yaw rotation → reverse reset → V model → nominal
+#   → four spatial move targets → landing reset
 #
 # pos:       [x, y, z]             world-frame position of fc (baselink), metres
 # rpy:       [roll, pitch, yaw]    orientation of fc, radians
@@ -15,16 +15,11 @@
 
 
 keyframes:
-  # ── 0: nominal hover (start) ──────────────────────────────────────────────
-  - pos:       [0.0, 0.0, 1.2]
+  # ── 0: takeoff hover ──────────────────────────────────────────────────────
+  - pos:       [0.0, 0.0, 1.0]
     rpy:       [0.0, 0.0, 0.0]
     joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
     duration:  0.0
-
-  - pos:       [0.0, 0.0, 1.2]
-    rpy:       [0.0, 0.0, 1.57]
-    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
-    duration:  10.0
 
   - pos:       [0.0, 0.0, 1.2]
     rpy:       [0.0, 0.0, 0.0]
@@ -48,22 +43,22 @@ keyframes:
   - pos:       [0.0, 0.0, 1.2]
     rpy:       [0.4, -0.4, 0.0]
     joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
-    duration:  8.0
+    duration:  12.0
   - pos:       [0.0, 0.0, 1.2]
     rpy:       [0.4, -0.4, 0.0]
     joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
-    duration:  2.0
+    duration:  3.0
 
   # ── 3: V model ─────────────────────────────────────────────────────────
   # Links arc upward; baselink pitches up (pitch 0.75 rad).
   - pos:       [0.0, 0.0, 1.2]
     rpy:       [0.0, 0.75, 0.0]
     joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
-    duration:  8.0
+    duration:  12.0
   - pos:       [0.0, 0.0, 1.2]
     rpy:       [0.0, 0.75, 0.0]
     joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
-    duration:  2.0
+    duration:  3.0
   # ── 4: V model Circle ─────────────────────────────────────────────────────
   # ── yaw = π/2 ─────────────────────────────────────────────────────────────
   - pos:       [0.0, 0.0, 1.2]
@@ -136,7 +131,28 @@ keyframes:
     joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
     duration:  3.0
 
-  # ── 8: Landing reset ──────────────────────────────────────────────────────
+  # ── 8: spatial move targets ───────────────────────────────────────────────
+  - pos:       [1.0, 0.0, 0.6]
+    rpy:       [0.0, -0.3, 0.0]
+    joint_pos: [-0.6, -1.56, -0.6, 0.0, 0.0, 1.56]
+    duration:  15.0
+
+  - pos:       [0.0, 1.0, 1.2]
+    rpy:       [0.4, -0.4, 0.0]
+    joint_pos: [-0.8, 1.2, -0.8, 1.2, -0.8, 1.2]
+    duration:  15.0
+
+  - pos:       [-1.0, 0.0, 1.8]
+    rpy:       [0.0, 0.75, 0.0]
+    joint_pos: [0.0, 1.57, -1.5, 0.0, 0.0, 1.57]
+    duration:  15.0
+
+  - pos:       [0.0, 0.0, 1.2]
+    rpy:       [0.0, 0.0, 0.0]
+    joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]
+    duration:  15.0
+
+  # ── 9: landing reset ──────────────────────────────────────────────────────
   - pos:       [0.0, 0.0, 0.2]
     rpy:       [0.0, 0.0, 0.0]
     joint_pos: [0.0, 1.57, 0.0, 1.57, 0.0, 1.57]

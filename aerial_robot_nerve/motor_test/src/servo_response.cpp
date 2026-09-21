@@ -435,9 +435,9 @@ private:
         valid_ = false;
       }
 
-    if (control_freq_ <= 0.0 || cmd_period_ <= 0.0 || position_limit_ <= 0.0)
+    if (control_freq_ <= 0.0 || cmd_period_ <= 0.0 || position_limit_ < 0.0)
       {
-        ROS_ERROR("servo_response: control_freq, cmd_period, and position_limit must be positive");
+        ROS_ERROR("servo_response: control_freq and cmd_period must be positive; position_limit must be non-negative");
         valid_ = false;
       }
   }

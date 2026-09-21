@@ -20,9 +20,9 @@
        axis_names: ordered joint/gimbal names to read from joint_states and publish in commands.
        enabled_axes: per-axis mask; disabled axes are still published at default_position.
        default_position: scalar or array added to the generated relative signal. -->
-  <arg name="axis_count" default="4" />
-  <arg name="axis_names" default="[]" />
-  <arg name="enabled_axes" default="[true, true, true, true]" />
+  <arg name="axis_count" default="2" />
+  <arg name="axis_names" default="[gimbal1_pitch, gimbal1_roll]" />
+  <arg name="enabled_axes" default="[false, true]" />
   <arg name="default_position" default="0.0" />
 
   <!-- Signal sets:
@@ -34,15 +34,15 @@
   <!-- Common signal parameters.
        control_freq: command rate [Hz].
        duration: collection time [s].
-       position_limit: symmetric work range [rad].
+       position_limit: non-negative symmetric work range [rad]; 0 keeps the relative command at zero.
        cmd_period: hold time for step, base period for sweep/multi [s]. -->
   <arg name="control_freq" default="200" />
   <arg name="duration" default="200" />
-  <arg name="position_limit" default="3.5" />
-  <arg name="cmd_period" default="0.04" />
+  <arg name="position_limit" default="1.57" />
+  <arg name="cmd_period" default="0.05" />
 
   <!-- sweep only: max period = period_scale * cmd_period. -->
-  <arg name="period_scale" default="50" />
+  <arg name="period_scale" default="100" />
 
   <!-- step only: position increment [rad] per cmd_period. -->
   <arg name="step_height" default="0.15" />
@@ -56,7 +56,7 @@
        effort_ctrl=false publishes JointState position command to command_topic.
        effort_ctrl=true publishes Float64 effort to effort_topics, or auto-built servo_controller topics.
        kp/kd/effort_limit may be scalar or array; effort_limit=[] means no clamp unless loaded from servo params. -->
-  <arg name="effort_ctrl" default="false" />
+  <arg name="effort_ctrl" default="true" />
   <arg name="kp" default="0.45" />
   <arg name="kd" default="0.008" />
   <arg name="effort_limit" default="[]" />

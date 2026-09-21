@@ -65,12 +65,18 @@ namespace aerial_robot_navigation
     ros::Publisher joint_control_pub_;
     ros::Subscriber final_target_baselink_rot_sub_, final_target_baselink_rpy_sub_;
     ros::Subscriber target_rotation_motion_sub_;
+    ros::ServiceClient joints_torque_client_, gimbals_torque_client_;
 
     void halt() override;
     void reset() override;
+    bool prepareForArming() override;
+    bool prepareForTakeoff() override;
 
     bool isInflightState() override;
 
+    bool setServoTorque(ros::ServiceClient& client,
+                        const std::string& service_name, bool enable);
+    bool enableAllServoTorque();
     void servoTorqueProcess();
     void landingProcess();
     void gimbalControl();

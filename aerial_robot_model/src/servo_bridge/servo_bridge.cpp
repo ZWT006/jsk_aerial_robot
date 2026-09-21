@@ -746,6 +746,22 @@ ServoBridge::ServoBridge(ros::NodeHandle nh, ros::NodeHandle nhp):
 
       std::string group_name = servo_group_params.first;
 
+      if(servo_group_params.second.hasMember("startup_torque_enable"))
+        {
+          XmlRpc::XmlRpcValue& startup_enable =
+            servo_group_params.second["startup_torque_enable"];
+          if(startup_enable.getType() != XmlRpc::XmlRpcValue::TypeBoolean)
+            {
+              ROS_ERROR("servo_controller/%s/startup_torque_enable must be a boolean",
+                        group_name.c_str());
+            }
+          else
+            {
+              startup_torque_enable_[group_name] =
+                static_cast<bool>(startup_enable);
+            }
+        }
+
       /* check whether has feedback state from real machine */
       no_real_state_flags_.insert(make_pair(group_name, false));
       if(servo_group_params.second.hasMember("no_real_state"))
@@ -960,6 +976,7 @@ void ServoBridge::servoStatesCallback(const spinal::ServoStatesConstPtr& state_m
         }
 
       // finish process
+      applyStartupTorqueConfig();
       return;
     }
 
@@ -1018,6 +1035,50 @@ void ServoBridge::servoStatesCallback(const spinal::ServoStatesConstPtr& state_m
         }
     }
   servo_states_pub_.publish(servo_states_msg);
+  applyStartupTorqueConfig();
+}
+
+void ServoBridge::applyStartupTorqueConfig()
+{
+  if(simulation_mode_ || use_mujoco_ || startup_torque_enable_.empty()) return;
+
+  for(auto it = startup_torque_enable_.begin();
+      it != startup_torque_enable_.end();)
+    {
+      const std::string& group_name = it->first;
+      auto group = servos_handler_.find(group_name);
+      if(group == servos_handler_.end())
+        {
+          ROS_ERROR("Cannot apply startup torque state: unknown servo group %s",
+                    group_name.c_str());
+          it = startup_torque_enable_.erase(it);
+          continue;
+        }
+
+      auto publisher = servo_enable_pubs_.find(group_name);
+      ros::Publisher& torque_pub = publisher != servo_enable_pubs_.end()
+        ? publisher->second : servo_enable_pubs_.at("common");
+
+      // The first servo feedback proves that Spinal is alive. Still wait for
+      // the torque command subscription so this one-shot startup command is
+      // not lost while the ROS serial bridge is registering its endpoints.
+      if(torque_pub.getNumSubscribers() == 0)
+        {
+          ++it;
+          continue;
+        }
+
+      spinal::ServoTorqueCmd torque_msg;
+      for(const auto& servo_handler : group->second)
+        {
+          torque_msg.index.push_back(servo_handler->getId());
+          torque_msg.torque_enable.push_back(it->second);
+        }
+      torque_pub.publish(torque_msg);
+      ROS_INFO("Applied startup torque state for servo group %s: %s",
+               group_name.c_str(), it->second ? "enabled" : "disabled");
+      it = startup_torque_enable_.erase(it);
+    }
 }
 
 void ServoBridge::servoCtrlCallback(const sensor_msgs::JointStateConstPtr& servo_ctrl_msg, const string& servo_group_name)

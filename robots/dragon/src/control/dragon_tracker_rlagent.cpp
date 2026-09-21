@@ -6,7 +6,8 @@
 //
 // Observation (per policy step, 40 Hz):
 //   [ target: K x (rel_pos(3) + rel_rot6d(6) + target_joint(6)) |
-//     joint_pos(6) | joint_vel(6)*dof_vel | gimbal_pos(8) | gimbal_vel(8)*dof_vel |
+//     joint_pos(6) | joint_vel(6)*dof_vel (or last_joint_pos) |
+//     gimbal_pos(8) | gimbal_vel(8)*dof_vel (or last_gimbal_pos) |
 //     root_rot6d(6) | lin_vel_b(3)*lin_vel | ang_vel_b(3)*ang_vel | last_action(18) ]
 // Action: [ joint(6)*joint_act | gimbal(8)*gimbal_act | paired per-EDF thrust(4)*thrust_act + hover ]
 //
@@ -161,6 +162,8 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<bool>(rl_nh, "ideal_quat_obs", ideal_quat_obs_, true);
   getParam<bool>(rl_nh, "ideal_lin_vel_obs", ideal_lin_vel_obs_, true);
   getParam<bool>(rl_nh, "ideal_ang_vel_obs", ideal_ang_vel_obs_, true);
+  getParam<bool>(rl_nh, "replace_dof_vel_with_last_pos",
+                 replace_dof_vel_with_last_pos_, false);
   getParam<std::string>(rl_nh, "ideal_obs_topic", ideal_obs_topic_, "uav/baselink/odom");
   getParam<int>(rl_nh, "ideal_delay", ideal_delay_, 0);
   ideal_delay_ = std::max(0, ideal_delay_);
@@ -262,6 +265,8 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   joint_vel_.assign(joint_size_, 0.0);
   gimbal_pos_.assign(gimbal_size_, 0.0);
   gimbal_vel_.assign(gimbal_size_, 0.0);
+  last_joint_pos_.assign(joint_size_, 0.0);
+  last_gimbal_pos_.assign(gimbal_size_, 0.0);
   target_joint_.assign(joint_size_, 0.0);
   target_gimbal_.assign(gimbal_size_, 0.0);
   target_thrust_.assign(pair_size_, 0.0);
@@ -319,8 +324,8 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   target_state_sub_ = nh_.subscribe(target_state_topic_, 10, &DragonTrackerRLAgent::targetStateCallback, this);
 
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
-  enable_gimbal_sub_ = nh_.subscribe("teleop_command/enable_gimbal", 1, &DragonTrackerRLAgent::enableGimbalCallback, this);
-  enable_joint_sub_ = nh_.subscribe("teleop_command/enable_joint", 1, &DragonTrackerRLAgent::enableJointCallback, this);
+  enable_all_arm_sub_ = nh_.subscribe("teleop_command/start", 1, &DragonTrackerRLAgent::enableJointAndGimbalCallback, this);
+  enable_all_tracking_sub_ = nh_.subscribe("teleop_command/start_tracking", 1, &DragonTrackerRLAgent::enableJointAndGimbalCallback, this);
   force_landing_sub_ = nh_.subscribe("teleop_command/force_landing", 1, &DragonTrackerRLAgent::forceLandingCallback, this);
   halt_sub_ = nh_.subscribe("teleop_command/halt", 1, &DragonTrackerRLAgent::haltCallback, this);
   joint_pub_ = nh_.advertise<sensor_msgs::JointState>("joints_ctrl", 1);
@@ -551,6 +556,7 @@ void DragonTrackerRLAgent::reset()
   step_count_ = 0;
   tracking_ = false;
   catch_obs_ = false;
+  last_dof_pos_initialized_ = false;
   target_joint_list_.clear();
   target_gimbal_list_.clear();
   target_thrust_list_.clear();
@@ -648,6 +654,16 @@ void DragonTrackerRLAgent::buildObservation()
       return;
     }
 
+  // On the first valid frame (and after reset/config enable), use the current
+  // positions as the previous positions so the replacement slots do not start
+  // with an artificial all-zero sample.
+  if (replace_dof_vel_with_last_pos_ && !last_dof_pos_initialized_)
+    {
+      last_joint_pos_ = joint_pos_;
+      last_gimbal_pos_ = gimbal_pos_;
+      last_dof_pos_initialized_ = true;
+    }
+
   // ---- fc pose / twist (dragon baselink == fc, the training IMU link) ----
   fc_pos_ = estimator_->getPos(Frame::BASELINK, estimate_mode_);
   tf::Matrix3x3 estimator_rot = estimator_->getOrientation(Frame::BASELINK, estimate_mode_);
@@ -716,6 +732,15 @@ void DragonTrackerRLAgent::buildObservation()
   observation_ = std::move(obs);
   catch_obs_ = true;
 
+  // Advance the position history only after a complete observation has been
+  // accepted. Thus every replacement slot refers to the preceding policy step,
+  // independent of the joint-state callback rate and controller decimation.
+  if (replace_dof_vel_with_last_pos_)
+    {
+      last_joint_pos_ = joint_pos_;
+      last_gimbal_pos_ = gimbal_pos_;
+    }
+
   // debug tracking errors against the first look-ahead frame
   const RefFrame& f0 = target_frames_[0];
   pos_error_ = f0.pos - fc_pos_;
@@ -777,7 +802,12 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     }
   else if (term == "joint_vel")
     {
-      for (int i = 0; i < joint_size_; ++i) out.push_back(joint_vel_[i] * scales_["dof_vel"]);
+      if (replace_dof_vel_with_last_pos_)
+        for (int i = 0; i < joint_size_; ++i)
+          out.push_back(last_joint_pos_[i] - joint_default_pos_[i]);
+      else
+        for (int i = 0; i < joint_size_; ++i)
+          out.push_back(joint_vel_[i] * scales_["dof_vel"]);
     }
   else if (term == "gimbal_pos")
     {
@@ -785,7 +815,12 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     }
   else if (term == "gimbal_vel")
     {
-      for (int i = 0; i < gimbal_size_; ++i) out.push_back(gimbal_vel_[i] * scales_["dof_vel"]);
+      if (replace_dof_vel_with_last_pos_)
+        for (int i = 0; i < gimbal_size_; ++i)
+          out.push_back(last_gimbal_pos_[i] - gimbal_default_pos_[i]);
+      else
+        for (int i = 0; i < gimbal_size_; ++i)
+          out.push_back(gimbal_vel_[i] * scales_["dof_vel"]);
     }
   else if (term == "root_rot_vec")
     {
@@ -867,20 +902,25 @@ bool DragonTrackerRLAgent::loadEffortControlParams(const std::string& group_name
       return false;
     }
 
-  double default_kp = 0.0;
-  double default_kd = 0.0;
-  double default_limit = std::numeric_limits<double>::infinity();
-  if (group_xml.hasMember("simulation"))
+  if (!group_xml.hasMember("simulation") ||
+      group_xml["simulation"].getType() != XmlRpc::XmlRpcValue::TypeStruct)
     {
-      XmlRpc::XmlRpcValue& sim = group_xml["simulation"];
-      if (sim.hasMember("pid"))
-        {
-          XmlRpc::XmlRpcValue& pid = sim["pid"];
-          default_kp = getXmlRpcDouble(pid, "p", default_kp);
-          default_kd = getXmlRpcDouble(pid, "d", default_kd);
-        }
-      default_limit = getXmlRpcDouble(sim, "effort_limit", default_limit);
+      ROS_ERROR("[RL-Tracker] Missing servo_controller/%s/simulation parameters "
+                "for effort control.", group_name.c_str());
+      return false;
     }
+  XmlRpc::XmlRpcValue& group_sim = group_xml["simulation"];
+  for (const auto& key : {"mit_kp_si", "mit_kd_si", "effort_limit"})
+    if (!group_sim.hasMember(key))
+      {
+        ROS_ERROR("[RL-Tracker] Missing servo_controller/%s/simulation/%s for effort control.",
+                  group_name.c_str(), key);
+        return false;
+      }
+
+  const double default_kp = getXmlRpcDouble(group_sim, "mit_kp_si", 0.0);
+  const double default_kd = getXmlRpcDouble(group_sim, "mit_kd_si", 0.0);
+  const double default_limit = getXmlRpcDouble(group_sim, "effort_limit", 0.0);
 
   kp.assign(names.size(), default_kp);
   kd.assign(names.size(), default_kd);
@@ -902,12 +942,8 @@ bool DragonTrackerRLAgent::loadEffortControlParams(const std::string& group_name
       if (ctrl.hasMember("simulation"))
         {
           XmlRpc::XmlRpcValue& sim = ctrl["simulation"];
-          if (sim.hasMember("pid"))
-            {
-              XmlRpc::XmlRpcValue& pid = sim["pid"];
-              kp[idx] = getXmlRpcDouble(pid, "p", kp[idx]);
-              kd[idx] = getXmlRpcDouble(pid, "d", kd[idx]);
-            }
+          kp[idx] = getXmlRpcDouble(sim, "mit_kp_si", kp[idx]);
+          kd[idx] = getXmlRpcDouble(sim, "mit_kd_si", kd[idx]);
           effort_limit[idx] = getXmlRpcDouble(sim, "effort_limit", effort_limit[idx]);
         }
 
@@ -1218,18 +1254,13 @@ void DragonTrackerRLAgent::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
   odom_catch_ = true;
 }
 
-void DragonTrackerRLAgent::enableJointCallback(const std_msgs::Empty::ConstPtr& /*msg*/)
+void DragonTrackerRLAgent::enableJointAndGimbalCallback(
+  const std_msgs::Empty::ConstPtr& /*msg*/)
 {
   std::lock_guard<std::mutex> lock(data_mutex_);
   enable_joint_ = true;
-  ROS_INFO("[RL-Tracker] Joint command enabled by teleop.");
-}
-
-void DragonTrackerRLAgent::enableGimbalCallback(const std_msgs::Empty::ConstPtr& /*msg*/)
-{
-  std::lock_guard<std::mutex> lock(data_mutex_);
   enable_gimbal_ = true;
-  ROS_INFO("[RL-Tracker] Gimbal command enabled by teleop.");
+  ROS_INFO("[RL-Tracker] Joint and gimbal commands enabled by teleop.");
 }
 
 void DragonTrackerRLAgent::forceLandingCallback(const std_msgs::Empty::ConstPtr& /*msg*/)
@@ -1369,6 +1400,11 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
   getParam<bool>(rl_nh, "rlagent_verbose", verbose_, verbose_);
   getParam<bool>(rl_nh, "rlagent_debug", debug_, debug_);
   getParam<bool>(rl_nh, "rlagent_forward_info", forward_info_, forward_info_);
+  const bool old_replace_dof_vel_with_last_pos = replace_dof_vel_with_last_pos_;
+  getParam<bool>(rl_nh, "replace_dof_vel_with_last_pos",
+                 replace_dof_vel_with_last_pos_, replace_dof_vel_with_last_pos_);
+  if (replace_dof_vel_with_last_pos_ != old_replace_dof_vel_with_last_pos)
+    last_dof_pos_initialized_ = false;
   getParam<double>(rl_nh, "thrust_hover", thrust_hover_, thrust_hover_);
   getParam<double>(rl_nh, "thrust_limit", thrust_limit_, thrust_limit_);
   getParam<double>(rl_nh, "joint_limit", joint_limit_, joint_limit_);
@@ -1395,6 +1431,8 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
                 " enable_gimbal=" + std::to_string(enable_gimbal_) +
                 " joint_effort_ctrl=" + std::to_string(joint_effort_ctrl_) +
                 " gimbal_effort_ctrl=" + std::to_string(gimbal_effort_ctrl_) +
+                " replace_dof_vel_with_last_pos=" +
+                std::to_string(replace_dof_vel_with_last_pos_) +
                 " thrust_scale=" + std::to_string(thrust_scale_default_) +
                 " joint_limit=" + std::to_string(joint_limit_);
   ROS_INFO("[RL-Tracker] %s", res.message.c_str());

@@ -29,6 +29,11 @@ void DragonNavigator::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   final_target_baselink_rpy_sub_ = nh_.subscribe("final_target_baselink_rpy", 1, &DragonNavigator::targetBaselinkRPYCallback, this);
   target_rotation_motion_sub_ = nh_.subscribe("target_rotation_motion", 1, &DragonNavigator::targetRotationMotionCallback, this);
 
+  joints_torque_client_ =
+    nh_.serviceClient<std_srvs::SetBool>(joints_torque_control_srv_name_);
+  gimbals_torque_client_ =
+    nh_.serviceClient<std_srvs::SetBool>(gimbals_torque_control_srv_name_);
+
   prev_rotation_stamp_ = ros::Time::now().toSec();
 }
 
@@ -287,7 +292,6 @@ void DragonNavigator::landingProcess()
 
 void DragonNavigator::servoTorqueProcess()
 {
-  ros::ServiceClient client = nh_.serviceClient<std_srvs::SetBool>(joints_torque_control_srv_name_);
   std_srvs::SetBool srv;
 
   if(servo_torque_)
@@ -299,7 +303,7 @@ void DragonNavigator::servoTorqueProcess()
 
               srv.request.data = false;
 
-              if (client.call(srv))
+              if (joints_torque_client_.call(srv) && srv.response.success)
                 {
                   ROS_INFO("dragon control: disable the joint torque");
                   servo_torque_ = false;
@@ -317,7 +321,7 @@ void DragonNavigator::servoTorqueProcess()
         {
           srv.request.data = true;
 
-          if (client.call(srv))
+          if (joints_torque_client_.call(srv) && srv.response.success)
             {
               ROS_INFO("dragon control: enable the joint torque");
               servo_torque_ = true;
@@ -328,6 +332,54 @@ void DragonNavigator::servoTorqueProcess()
             }
         }
     }
+}
+
+bool DragonNavigator::setServoTorque(ros::ServiceClient& client,
+                                     const std::string& service_name,
+                                     bool enable)
+{
+  std_srvs::SetBool srv;
+  srv.request.data = enable;
+  if(!client.call(srv))
+    {
+      ROS_ERROR("Failed to call service %s", service_name.c_str());
+      return false;
+    }
+  if(!srv.response.success)
+    {
+      ROS_ERROR("Service %s rejected torque %s: %s", service_name.c_str(),
+                enable ? "enable" : "disable",
+                srv.response.message.c_str());
+      return false;
+    }
+
+  ROS_INFO("Dragon control: %s servo torque through %s",
+           enable ? "enabled" : "disabled", service_name.c_str());
+  return true;
+}
+
+bool DragonNavigator::enableAllServoTorque()
+{
+  const bool joints_enabled = setServoTorque(
+    joints_torque_client_, joints_torque_control_srv_name_, true);
+  const bool gimbals_enabled = setServoTorque(
+    gimbals_torque_client_, gimbals_torque_control_srv_name_, true);
+  if(joints_enabled && gimbals_enabled) return true;
+
+  // Do not proceed to arming/takeoff with only one servo group active.
+  setServoTorque(joints_torque_client_, joints_torque_control_srv_name_, false);
+  setServoTorque(gimbals_torque_client_, gimbals_torque_control_srv_name_, false);
+  return false;
+}
+
+bool DragonNavigator::prepareForArming()
+{
+  return enableAllServoTorque();
+}
+
+bool DragonNavigator::prepareForTakeoff()
+{
+  return enableAllServoTorque();
 }
 
 void DragonNavigator::reset()
@@ -349,21 +401,10 @@ void DragonNavigator::reset()
 
 void DragonNavigator::halt()
 {
-  ros::ServiceClient client = nh_.serviceClient<std_srvs::SetBool>(joints_torque_control_srv_name_);
-  std_srvs::SetBool srv;
-  srv.request.data = false;
-  if (client.call(srv))
-    ROS_INFO("dragon control halt process: disable the joint torque");
-  else
-    ROS_ERROR("Failed to call service %s", joints_torque_control_srv_name_.c_str());
-
-  client = nh_.serviceClient<std_srvs::SetBool>(gimbals_torque_control_srv_name_);
-
-  srv.request.data = false;
-  if (client.call(srv))
-    ROS_INFO("dragon control halt process: disable the gimbal torque");
-  else
-    ROS_ERROR("Failed to call service %s", gimbals_torque_control_srv_name_.c_str());
+  setServoTorque(joints_torque_client_,
+                 joints_torque_control_srv_name_, false);
+  setServoTorque(gimbals_torque_client_,
+                 gimbals_torque_control_srv_name_, false);
 }
 
 void DragonNavigator::rosParamInit()

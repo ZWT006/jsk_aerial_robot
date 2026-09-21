@@ -6,6 +6,7 @@ servo_controller:
   dynamixel_ttl_rs485_mixed: true
 
   joints:
+    startup_torque_enable: true # enable torque at bring-up for joints
     angle_sgn: 1
     angle_scale: 0.00076699
     velocity_scale: 0.01199041 # 0.229 [rev/min] -> rad/s, scaled by 2:1 pulley
@@ -54,6 +55,7 @@ servo_controller:
         init_value: 1.57
 
   gimbals:
+    startup_torque_enable: true # enable torque at bring-up for gimbals
     no_real_state: false # true if there is no servo state from real machine
     # ctrl_pub_topic: hoge # other topic than the common one:  "servo/target_states", if necessary
 
@@ -93,4 +95,3 @@ servo_controller:
     controller8:
       id: 12
       name: gimbal4_pitch
-

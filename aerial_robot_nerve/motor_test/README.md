@@ -80,11 +80,35 @@ Use only these three `signal_type` values:
 - `default_position`: scalar or array added to the generated relative command.
 - `control_freq`: command publish rate [Hz].
 - `duration`: data collection duration [s].
-- `position_limit`: symmetric work range [rad].
+- `position_limit`: non-negative symmetric work range [rad]. Set it to `0` to
+  keep the generated relative command at zero.
 - `enable_save`, `save_path`, `file_prefix`: CSV logging controls.
 - `effort_ctrl`: if false, publish position command to `command_topic`; if true,
   publish Float64 effort commands using `effort_topics` or auto-built
   `servo_controller/<servo_group>/controllerN/simulation/command` topics.
+
+### Attention: real-hardware servo safety
+
+Sparse commands do not make the other servos safe automatically:
+
+- Every servo listed in `axis_names` is included in every position command.
+  Setting its `enabled_axes` entry to `false` only disables the test signal;
+  that servo still receives `default_position`. It is **not** torque-disabled.
+- Servos omitted from `axis_names` do not receive `default_position` from this
+  node. `ServoBridge` forwards only the named servos, but Spinal retains the
+  previous target of every other servo and continues transmitting those cached
+  targets to the hardware. An omitted servo can therefore remain torque-enabled
+  and hold or move toward an earlier target.
+- Before running on real hardware, explicitly torque-disable every servo that is
+  not under test, and verify its torque state. Do not rely on omission from
+  `axis_names` or on `enabled_axes: false` as a safety mechanism. Also ensure
+  that no other controller is publishing commands to the same control topic.
+
+Use the platform's per-servo torque-control procedure (for example,
+`spinal/ServoTorqueCmd` on `<robot_ns>/servo/torque_enable` or the servo monitor)
+when only selected servos should remain enabled. The
+`<robot_ns>/<servo_group>/torque_enable` service switches the entire configured
+group and cannot isolate individual axes.
 
 ### Beetle examples
 
