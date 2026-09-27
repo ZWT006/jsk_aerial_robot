@@ -230,16 +230,16 @@ void DynamixelSerial::init(UART_HandleTypeDef* huart, I2C_HandleTypeDef* hi2c, o
 
 void DynamixelSerial::ping()
 {
-	cmdPing(BROADCAST_ID);
-	for (int i = 0; i < PING_TRIAL_NUM; ++i) {
-		const int8_t result = readStatusPacket(INST_PING);
-		if (result == NEURON_SERVO_RESULT_TIMEOUT ||
-		    result == NEURON_SERVO_RESULT_UART_ERROR) break;
-	}
-	std::sort(servo_.begin(), servo_.begin() + servo_num_,
-	          [](const ServoData& lhs, const ServoData& rhs) {
-	            return lhs.id_ < rhs.id_;
-	          });
+  cmdPing(BROADCAST_ID);
+
+  for (int i = 0; i < PING_TRIAL_NUM; ++i) {
+    (void)readStatusPacket(INST_PING);
+  }
+
+  std::sort(servo_.begin(), servo_.begin() + servo_num_,
+            [](const ServoData& lhs, const ServoData& rhs) {
+              return lhs.id_ < rhs.id_;
+            });
 }
 
 void DynamixelSerial::reboot(uint8_t servo_index)

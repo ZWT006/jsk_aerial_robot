@@ -63,7 +63,7 @@ servo_controller:
     angle_scale: 0.001534
     velocity_scale: 0.02398082 # 0.229 [rev/min] -> rad/s
     zero_point_offset: 2047
-    mode: DP # Current-based Position control mode
+    mode: CbP # Current-based Position control mode
     bus_type: T
 
     simulation:
@@ -77,21 +77,25 @@ servo_controller:
     controller2:
       id: 2
       name: gimbal1_pitch
+      mode: DEP # Extended Position Control
     controller3:
       id: 7
       name: gimbal2_roll
     controller4:
       id: 6
       name: gimbal2_pitch
+      mode: DEP # Extended Position Control
     controller5:
       id: 11
       name: gimbal3_roll
     controller6:
       id: 10
       name: gimbal3_pitch
+      mode: DEP # Extended Position Control
     controller7:
       id: 13
       name: gimbal4_roll
     controller8:
       id: 12
       name: gimbal4_pitch
+      mode: DEP # Extended Position Control

@@ -57,7 +57,6 @@ namespace Spine
     spinal::GetBoardInfo::Response board_info_res_;
 
     ros::NodeHandle* nh_;
-    std::vector<uint32_t> neuron_servo_last_pub_time_;
     uint32_t direct_servo_last_pub_time_ = 0;
     uint32_t servo_torque_last_pub_time_ = 0;
     unsigned int can_idle_count_ = 0;
@@ -324,8 +323,6 @@ namespace Spine
 
     slave_num_ = neuron_.size();
     if (slave_num_ > CAN::CANFD_MAX_NEURON_NUM) return false;
-    neuron_servo_last_pub_time_.assign(slave_num_, 0);
-
     //add CAN devices to CANDeviceManager
     for (unsigned int i = 0; i < neuron_.size(); i++) {
       CANDeviceManager::addDevice(neuron_.at(i).can_motor_);
@@ -508,15 +505,13 @@ namespace Spine
     if (servo_num_ == 0) return;
 
     uint32_t now_time = HAL_GetTick();
-    bool publish_neuron = false;
-    for (unsigned int i = 0; i < neuron_.size(); ++i) {
-      const CANServo& can_servo = neuron_.at(i).can_servo_;
-      const uint16_t frequency = can_servo.getServoFeedbackFrequency();
-      const uint32_t interval = frequency == 0 ? UINT32_MAX :
-        (1000U + frequency - 1U) / frequency;
-      if (!can_servo.servo_.empty() && frequency != 0 &&
-          now_time - neuron_servo_last_pub_time_.at(i) >= interval) {
-        publish_neuron = true;
+    // Publish Neuron states only after every enabled servo has fresh PVC data.
+    bool publish_neuron = !servo_with_send_flag_.empty();
+    for (const std::reference_wrapper<Servo>& servo_ref :
+         servo_with_send_flag_) {
+      if (!servo_ref.get().getPvcUpdated()) {
+        publish_neuron = false;
+        break;
       }
     }
     bool publish_direct = false;
@@ -549,27 +544,21 @@ namespace Spine
           direct_servo_last_pub_time_ = now_time;
         }
         if (publish_neuron) {
-          for (unsigned int i = 0; i < neuron_.size(); ++i) {
-            CANServo& can_servo = neuron_.at(i).can_servo_;
-            const uint16_t frequency = can_servo.getServoFeedbackFrequency();
-            const uint32_t interval = frequency == 0 ? UINT32_MAX :
-              (1000U + frequency - 1U) / frequency;
-            if (frequency == 0 ||
-                now_time - neuron_servo_last_pub_time_.at(i) < interval) {
-              continue;
-            }
-            for (Servo& neuron_servo : can_servo.servo_) {
-              if (!neuron_servo.getSendDataFlag()) continue;
-              spinal::ServoState state;
-              state.index = neuron_servo.getIndex();
-              state.angle = neuron_servo.getPresentPosition();
-              state.velocity = neuron_servo.getPresentVelocity();
-              state.temp = neuron_servo.getPresentTemperature();
-              state.load = neuron_servo.getPresentCurrent();
-              state.error = neuron_servo.getError();
-              servo_state_msg_.servos[output_index++] = state;
-            }
-            neuron_servo_last_pub_time_.at(i) = now_time;
+          for (std::reference_wrapper<Servo>& servo_ref :
+               servo_with_send_flag_) {
+            Servo& neuron_servo = servo_ref.get();
+            spinal::ServoState state;
+            state.index = neuron_servo.getIndex();
+            state.angle = neuron_servo.getPresentPosition();
+            state.velocity = neuron_servo.getPresentVelocity();
+            state.temp = neuron_servo.getPresentTemperature();
+            state.load = neuron_servo.getPresentCurrent();
+            state.error = neuron_servo.getError();
+            servo_state_msg_.servos[output_index++] = state;
+          }
+          for (std::reference_wrapper<Servo>& servo_ref :
+               servo_with_send_flag_) {
+            servo_ref.get().clearPvcUpdated();
           }
         }
         servo_state_msg_.servos_length = output_index;

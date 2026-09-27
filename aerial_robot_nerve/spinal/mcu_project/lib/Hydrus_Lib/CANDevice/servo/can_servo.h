@@ -38,6 +38,7 @@ private:
 	bool torque_feedback_;
 	bool goal_position_ack_;
 	bool force_servo_off_;
+	volatile bool pvc_updated_;
 		bool external_encoder_flag_;
 		bool configured_;
 		bool watchdog_timed_out_;
@@ -57,6 +58,7 @@ public:
 	          send_data_flag_(false), torque_command_(false),
 	          torque_feedback_(false),
 	          goal_position_ack_(false), force_servo_off_(false),
+	          pvc_updated_(false),
 	          external_encoder_flag_(false), configured_(false),
 	          watchdog_timed_out_(false), joint_resolution_(0),
 	          servo_resolution_(0) {}
@@ -80,6 +82,7 @@ public:
 		bool getTorqueCommand() const {return torque_command_;}
 		bool getTorqueFeedback() const {return torque_feedback_;}
 		bool getForceServoOffFlag() const {return force_servo_off_;}
+		bool getPvcUpdated() const {return pvc_updated_;}
 		uint8_t getBusType() const {return bus_type_;}
 		uint8_t getMode() const {return mode_;}
 		uint8_t getOperatingMode() const {return operating_mode_;}
@@ -93,6 +96,7 @@ public:
 	void setGoalPosition(int32_t goal_position) {goal_position_ = goal_position;}
 	void setGoalVelocity(int32_t goal_velocity) {goal_velocity_ = goal_velocity;}
 	void setGoalCurrent(int16_t goal_current) {goal_current_ = goal_current;}
+	void clearPvcUpdated() {pvc_updated_ = false;}
 	void setTorqueEnable(bool torque_enable);
 	void copyConfigurationFrom(const Servo& source)
 	{

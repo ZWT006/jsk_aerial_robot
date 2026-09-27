@@ -1162,7 +1162,7 @@ void DragonTrackerRLAgent::sendCmd()
         }
       else
         {
-          joint_pub_.publish(joint_cmd_);
+          // joint_pub_.publish(joint_cmd_);
         }
     }
   if (gimbal_ready)
@@ -1178,12 +1178,12 @@ void DragonTrackerRLAgent::sendCmd()
         }
       else
         {
-          gimbal_pub_.publish(gimbal_cmd_);
+          // gimbal_pub_.publish(gimbal_cmd_);
         }
     }
   if (thrust_ready)
     {
-      thrust_pub_.publish(thrust_cmd_);
+      // thrust_pub_.publish(thrust_cmd_);
     }
   else if (enable_thrust_)
     {

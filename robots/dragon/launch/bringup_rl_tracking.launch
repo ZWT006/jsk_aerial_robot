@@ -3,8 +3,8 @@
   ###########  launch config  ###########
   # roslaunch dragon bringup_rl_tracking.launch rm:=False sim:=True headless:=False
   # roslaunch dragon bringup_rl_tracking.launch rm:=True sim:=False headless:=True
-  <arg name="rm" default="False" />
-  <arg name="sim" default="True" />
+  <arg name="rm" default="True" />
+  <arg name="sim" default="False" />
   <arg name="real_machine" default="$(arg rm)" />
   <arg name="simulation" default="$(arg sim)" />
 
