@@ -22,11 +22,15 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # policy-2026-09-18_22-19-13-27k.onnx   # amp with diverse trajectories
 # policy-2026-09-18_22-19-13-30k.onnx
 
+# policy-2026-09-23_21-40-20-30k.onnx
+# policy-2026-09-24_19-15-54-30k.onnx
+# policy-2026-09-25_16-02-42-30k.onnx   # replace dof vel with last pos
+
 # rosservice call /dragon/rlagent/reload_policy \
-#   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
+#   "policy_name: 'policy/policy-2026-09-23_21-40-20-30k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-09-22_11-00-06-30k.onnx"
+  onnx_model_path: "policy/policy-2026-09-26_15-39-01-30k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -62,7 +66,7 @@ rlagent:
   ideal_ang_vel_obs: true
   ideal_delay: 4
   # Put previous policy-step positions into dof_vel observation slots.
-  replace_dof_vel_with_last_pos: false
+  replace_dof_vel_with_last_pos: true
 
   # ---- actuator layout (sim order; must match training) ----
   joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]

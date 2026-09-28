@@ -9,10 +9,10 @@
   <arg name="signal_type" default="step" />
   <arg name="control_freq" default="200" />
   <arg name="duration" default="200" />
-  <arg name="position_limit" default="0.5" />
-  <arg name="cmd_period" default="1.0" />
+  <arg name="position_limit" default="0.05" />
+  <arg name="cmd_period" default="0.04" />
   <arg name="period_scale" default="50" />
-  <arg name="step_height" default="0.1" />
+  <arg name="step_height" default="0.01" />
 
   <arg name="enable_save" default="false" />
   <arg name="save_path" default="/home/wentao" />

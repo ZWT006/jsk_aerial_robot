@@ -804,7 +804,7 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     {
       if (replace_dof_vel_with_last_pos_)
         for (int i = 0; i < joint_size_; ++i)
-          out.push_back(last_joint_pos_[i] - joint_default_pos_[i]);
+          out.push_back(joint_pos_[i] -last_joint_pos_[i]);
       else
         for (int i = 0; i < joint_size_; ++i)
           out.push_back(joint_vel_[i] * scales_["dof_vel"]);
@@ -817,7 +817,7 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     {
       if (replace_dof_vel_with_last_pos_)
         for (int i = 0; i < gimbal_size_; ++i)
-          out.push_back(last_gimbal_pos_[i] - gimbal_default_pos_[i]);
+          out.push_back(gimbal_pos_[i] - last_gimbal_pos_[i]);
       else
         for (int i = 0; i < gimbal_size_; ++i)
           out.push_back(gimbal_vel_[i] * scales_["dof_vel"]);
