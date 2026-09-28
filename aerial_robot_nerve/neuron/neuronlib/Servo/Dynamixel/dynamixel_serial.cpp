@@ -2478,12 +2478,8 @@ bool DynamixelSerial::cmdBulkWriteGoalStates(ServoMask servo_mask)
 	    break;
 	  case NEURON_SERVO_MODE_CBP:
 	    appended = appendValue(
-	      servo.id_, CTRL_GOAL_CURRENT, GOAL_CURRENT_BYTE_LEN,
-	      static_cast<uint16_t>(clampGoalCurrent(
-	        servo.goal_current_ < 0
-	          ? -static_cast<int64_t>(servo.goal_current_)
-	          : servo.goal_current_,
-	        servo.current_limit_)));
+	      servo.id_, CTRL_GOAL_POSITION, GOAL_POSITION_BYTE_LEN,
+	      static_cast<uint32_t>(servo.getInternalGoalPosition()));
 	    cbp_mask |= bit;
 	    break;
 	  case NEURON_SERVO_MODE_DV:
@@ -2519,16 +2515,20 @@ bool DynamixelSerial::cmdBulkWriteGoalStates(ServoMask servo_mask)
 	    BROADCAST_ID, param_idx + 3, COMMAND_BULK_WRITE, parameters) == HAL_OK;
 	}
 
-	// Protocol 2.0 Bulk Write permits each ID only once per packet. Keep the
-	// current and position registers separate without overwriting the profile
-	// registers located between them in the control table.
+	// Protocol 2.0 Bulk Write permits each ID only once per packet. Send CbP
+	// Goal Current in a second packet after Goal Position without overwriting
+	// the profile registers located between them in the control table.
 	param_idx = 0;
 	for (uint8_t i = 0; i < servo_num_; ++i) {
 	  if ((cbp_mask & servoBit(i)) == 0) continue;
 	  const ServoData& servo = servo_[i];
 	  if (!appendValue(
-	        servo.id_, CTRL_GOAL_POSITION, GOAL_POSITION_BYTE_LEN,
-	        static_cast<uint32_t>(servo.getInternalGoalPosition()))) {
+	        servo.id_, CTRL_GOAL_CURRENT, GOAL_CURRENT_BYTE_LEN,
+	        static_cast<uint16_t>(clampGoalCurrent(
+	          servo.goal_current_ < 0
+	            ? -static_cast<int64_t>(servo.goal_current_)
+	            : servo.goal_current_,
+	          servo.current_limit_)))) {
 	    return false;
 	  }
 	}

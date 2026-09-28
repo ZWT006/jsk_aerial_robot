@@ -8,13 +8,13 @@
   <!-- Signal set: step, sweep, or multi. -->
   <arg name="signal_type" default="step" />
   <arg name="control_freq" default="200" />
-  <arg name="duration" default="200" />
-  <arg name="position_limit" default="0.5" />
-  <arg name="cmd_period" default="0.5" />
+  <arg name="duration" default="120" />
+  <arg name="position_limit" default="1.5" /> <!-- Roll: 0.30, Pitch 1.57 -->
+  <arg name="cmd_period" default="1.0" />
   <arg name="period_scale" default="50" />
-  <arg name="step_height" default="0.1" />
+  <arg name="step_height" default="0.15" />
 
-  <arg name="enable_save" default="false" />
+  <arg name="enable_save" default="true" />
   <arg name="save_path" default="/home/wentao" />
   <arg name="file_prefix" default="dragon_gimbal_response" />
 
@@ -31,6 +31,7 @@
        3. roll and pitch both controlled (default):
           [true, true, true, true, true, true, true, true] -->
   <arg name="enabled_axes" default="[false, true, false, true, false, true, false, true]" />
+  <!-- <arg name="enabled_axes" default="[true, false, true, false, true, false, true, false]" /> -->
   <arg name="default_position" default="0.0" />
 
   <!-- Real machine normally uses position commands through gimbals_ctrl.

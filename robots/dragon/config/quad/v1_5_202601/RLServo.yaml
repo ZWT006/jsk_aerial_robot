@@ -1,7 +1,7 @@
 servo_controller:
   auto_configure_direct_servo: true
   direct_servo_config_timeout: 10.0
-  servo_feedback_frequency: 10 # keep previous dragon settings
+  servo_feedback_frequency: 200 # keep previous dragon settings
   servo_target_watchdog: 0.1
   dynamixel_ttl_rs485_mixed: true
   
@@ -75,16 +75,16 @@ servo_controller:
     torque_scale: 0.0027976  # Nm/raw
     mode: CbP # Current-based Position control mode
     bus_type: T
-    mit_kp_si: 0.6349
-    mit_kd_si: 0.01183
-    mit_effort_limit_si: 3.0
+    mit_kp_si: 1.5396 # 0.6349
+    mit_kd_si: 0.04732 # 0.01183
+    mit_effort_limit_si: 1.9 # 0.38
 
     simulation:
       # Default to the training XM430-W210-T gimbal-roll actuator.
       # gimbal pitch controllers override this below.
       mit_kp_si: 0.6349
       mit_kd_si: 0.01183
-      effort_limit: 3.0
+      effort_limit: 0.38
       # Kept for servo_bridge controller-loading compatibility. The RL agent
       # reads only mit_kp_si, mit_kd_si and effort_limit above.
       pid: {p: 2.34079, i: 0.0, d: 0.146053, i_clamp_min: -3.0, i_clamp_max: 3.0}
@@ -97,25 +97,37 @@ servo_controller:
     controller2:
       id: 2
       name: gimbal1_pitch
-      mode: CbP # Extended Position Control
+      mode: DEP # Extended Position Control
+      mit_kp_si: 0.6349
+      mit_kd_si: 0.01183
+      effort_limit: 0.38
     controller3:
       id: 7
       name: gimbal2_roll
     controller4:
       id: 6
       name: gimbal2_pitch
-      mode: CbP # Extended Position Control
+      mode: DEP # Extended Position Control
+      mit_kp_si: 0.6349
+      mit_kd_si: 0.01183
+      effort_limit: 0.38
     controller5:
       id: 11
       name: gimbal3_roll
     controller6:
       id: 10
       name: gimbal3_pitch
-      mode: CbP # Extended Position Control
+      mode: DEP # Extended Position Control
+      mit_kp_si: 0.6349
+      mit_kd_si: 0.01183
+      effort_limit: 0.38
     controller7:
       id: 13
       name: gimbal4_roll
     controller8:
       id: 12
       name: gimbal4_pitch
-      mode: CbP # Extended Position Control
+      mode: DEP # Extended Position Control
+      mit_kp_si: 0.6349
+      mit_kd_si: 0.01183
+      effort_limit: 0.38
