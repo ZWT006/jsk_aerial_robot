@@ -131,10 +131,11 @@ void Servo::sendConfigResponse(uint8_t sequence, uint8_t command,
     writeUint16(response + 24, selected->current_limit_);
     writeUint16(response + 26, selected->joint_resolution_);
     writeUint16(response + 28, selected->servo_resolution_);
-    writeInt16(response + 30, selected->kp_integer_);
-    writeInt16(response + 32, selected->kp_decimal_);
-    writeInt16(response + 34, selected->kd_integer_);
-    writeInt16(response + 36, selected->kd_decimal_);
+    writeInt16(response + 30, selected->mit_kp_integer_);
+    writeInt16(response + 32, selected->mit_kp_decimal_);
+    writeInt16(response + 34, selected->mit_kd_integer_);
+    writeInt16(response + 36, selected->mit_kd_decimal_);
+    writeUint16(response + 40, selected->mit_current_limit_);
   }
   response[38] = servo_handler_.getTTLRS485Mixed() ? 1 : 0;
   sendMessage(CAN::MESSAGEID_RECEIVE_SERVO_CONFIG, m_slave_id,
@@ -154,7 +155,7 @@ void Servo::processConfigRequest()
   uint8_t command = 0;
   uint8_t data_length = 0;
   bool response_required = false;
-  std::array<int32_t, 5> data = {};
+  std::array<int32_t, 6> data = {};
 
   taskENTER_CRITICAL();
   if (!config_request_pending_) {
@@ -190,6 +191,18 @@ bool Servo::update()
 void Servo::sendData()
 {
 #ifdef STM32G4
+  // Keep the Dynamixel PVC/control cycle at 200 Hz and only downsample the
+  // Neuron-to-Spinal state stream here.
+  const uint16_t feedback_frequency =
+    servo_handler_.getServoFeedbackFrequency();
+  if (feedback_frequency == 0) return;
+
+  const uint32_t feedback_interval =
+    (1000U + feedback_frequency - 1U) / feedback_frequency;
+  const uint32_t now = HAL_GetTick();
+  if (now - last_feedback_send_tick_ < feedback_interval) return;
+  last_feedback_send_tick_ = now;
+
   const unsigned int servo_count = std::min<unsigned int>(
     CAN::CANFD_MAX_SERVO_NUM, servo_handler_.getServoNum());
   const uint8_t sequence = state_sequence_++;
@@ -264,9 +277,9 @@ void Servo::receiveDataCallback(uint8_t message_id, uint32_t DLC,
   if (message_id == CAN::MESSAGEID_RECEIVE_SERVO_CONFIG) {
     if (DLC != CAN::CANFD_SERVO_CONFIG_DLC ||
         data[0] != CAN::CANFD_PROTOCOL_VERSION ||
-        data[3] > 5) return;
+        data[3] > 6) return;
 
-    int32_t request_data[5] = {};
+    int32_t request_data[6] = {};
     for (uint8_t i = 0; i < data[3]; ++i) {
       request_data[i] = readInt32(data + 4 + i * 4);
     }

@@ -78,16 +78,16 @@ bool Initializer::sendBoardConfig()
 			data[3] = s.operating_mode_;
 			data[4] = s.configured_ ? 1 : 0;
 			data[5] = 0;
-			data[6] = s.kp_integer_ & 0xFF;
-			data[7] = (s.kp_integer_ >> 8) & 0xFF;
-			data[8] = s.kp_decimal_ & 0xFF;
-			data[9] = (s.kp_decimal_ >> 8) & 0xFF;
-			data[10] = s.kd_integer_ & 0xFF;
-			data[11] = (s.kd_integer_ >> 8) & 0xFF;
-			data[12] = s.kd_decimal_ & 0xFF;
-			data[13] = (s.kd_decimal_ >> 8) & 0xFF;
-			data[14] = 0;
-			data[15] = 0;
+			data[6] = s.mit_kp_integer_ & 0xFF;
+			data[7] = (s.mit_kp_integer_ >> 8) & 0xFF;
+			data[8] = s.mit_kp_decimal_ & 0xFF;
+			data[9] = (s.mit_kp_decimal_ >> 8) & 0xFF;
+			data[10] = s.mit_kd_integer_ & 0xFF;
+			data[11] = (s.mit_kd_integer_ >> 8) & 0xFF;
+			data[12] = s.mit_kd_decimal_ & 0xFF;
+			data[13] = (s.mit_kd_decimal_ >> 8) & 0xFF;
+			data[14] = s.mit_current_limit_ & 0xFF;
+			data[15] = (s.mit_current_limit_ >> 8) & 0xFF;
 			if (!sendMessage(CAN::MESSAGEID_SEND_INITIAL_CONFIG_4,
 			                 m_slave_id, 16, data, 1)) return false;
 #endif

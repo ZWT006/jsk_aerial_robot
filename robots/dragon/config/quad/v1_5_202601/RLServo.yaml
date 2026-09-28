@@ -1,7 +1,7 @@
 servo_controller:
   auto_configure_direct_servo: true
   direct_servo_config_timeout: 10.0
-  servo_feedback_frequency: 200 # keep previous dragon settings
+  servo_feedback_frequency: 10 # keep previous dragon settings
   servo_target_watchdog: 0.1
   dynamixel_ttl_rs485_mixed: true
   
@@ -11,11 +11,12 @@ servo_controller:
     angle_scale: 0.00076699
     velocity_scale: 0.01199041 # 0.229 [rev/min] -> rad/s, scaled by 2:1 pulley
     zero_point_offset: 2047
-    torque_scale: 0.00384286 # 0.7142857 Nm/ A * 0.00296 A/bit * 2 (pulley)
+    torque_scale: 0.009415 # 1.75 Nm/ A * 0.00296 A/bit * 2 (pulley)
     mode: MIT # Current-based Position control mode
     bus_type: R
     mit_kp_si: 4.8309
     mit_kd_si: 0.3075
+    mit_effort_limit_si: 6.2
 
     filter_flag: false
     sample_freq: 200.0
@@ -71,8 +72,12 @@ servo_controller:
     angle_scale: 0.001534
     velocity_scale: 0.02398082 # 0.229 [rev/min] -> rad/s
     zero_point_offset: 2047
+    torque_scale: 0.0027976  # Nm/raw
     mode: CbP # Current-based Position control mode
     bus_type: T
+    mit_kp_si: 0.6349
+    mit_kd_si: 0.01183
+    mit_effort_limit_si: 3.0
 
     simulation:
       # Default to the training XM430-W210-T gimbal-roll actuator.
@@ -92,26 +97,25 @@ servo_controller:
     controller2:
       id: 2
       name: gimbal1_pitch
-      mode: DEP # Extended Position Control
+      mode: CbP # Extended Position Control
     controller3:
       id: 7
       name: gimbal2_roll
     controller4:
       id: 6
       name: gimbal2_pitch
-      mode: DEP # Extended Position Control
+      mode: CbP # Extended Position Control
     controller5:
       id: 11
       name: gimbal3_roll
     controller6:
       id: 10
       name: gimbal3_pitch
-      mode: DEP # Extended Position Control
+      mode: CbP # Extended Position Control
     controller7:
       id: 13
       name: gimbal4_roll
     controller8:
       id: 12
       name: gimbal4_pitch
-      mode: DEP # Extended Position Control
-      
+      mode: CbP # Extended Position Control

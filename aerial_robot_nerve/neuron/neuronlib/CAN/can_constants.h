@@ -24,7 +24,7 @@ namespace CAN {
 	constexpr uint8_t DEVICEID_IMU = 1;
 	constexpr uint8_t DEVICEID_SERVO = 2;
 	constexpr uint8_t DEVICEID_INITIALIZER = 7;
-	constexpr uint8_t CANFD_PROTOCOL_VERSION = 1;
+	constexpr uint8_t CANFD_PROTOCOL_VERSION = 2;
 	constexpr uint8_t CANFD_MAX_NEURON_NUM = 5;
 	constexpr uint8_t CANFD_MAX_SERVO_NUM = 4;
 	constexpr uint8_t MESSAGEID_SEND_GYRO = 0;

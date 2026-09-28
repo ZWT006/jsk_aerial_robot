@@ -19,8 +19,9 @@ private:
 		uint8_t bus_type_;
 		uint8_t mode_;
 		uint8_t operating_mode_;
-		int16_t kp_integer_, kp_decimal_;
-		int16_t kd_integer_, kd_decimal_;
+		int16_t mit_kp_integer_, mit_kp_decimal_;
+		int16_t mit_kd_integer_, mit_kd_decimal_;
+	uint16_t mit_current_limit_;
 	uint16_t p_gain_, i_gain_, d_gain_;
 	int32_t present_position_;
 	int32_t present_velocity_;
@@ -49,8 +50,9 @@ private:
 	friend class CANInitializer;
 public:
 	  Servo():id_(0), index_(0), bus_type_(0xFF), mode_(0xFF),
-	          operating_mode_(0xFF), kp_integer_(0), kp_decimal_(0),
-	          kd_integer_(0), kd_decimal_(0), p_gain_(0), i_gain_(0),
+	          operating_mode_(0xFF), mit_kp_integer_(0), mit_kp_decimal_(0),
+	          mit_kd_integer_(0), mit_kd_decimal_(0), mit_current_limit_(0),
+	          p_gain_(0), i_gain_(0),
 	          d_gain_(0), present_position_(0), present_velocity_(0),
 	          goal_position_(0), goal_velocity_(0), goal_current_(0),
 	          profile_velocity_(0), present_current_(0), current_limit_(0),
@@ -86,10 +88,11 @@ public:
 		uint8_t getBusType() const {return bus_type_;}
 		uint8_t getMode() const {return mode_;}
 		uint8_t getOperatingMode() const {return operating_mode_;}
-		int16_t getKpInteger() const {return kp_integer_;}
-		int16_t getKpDecimal() const {return kp_decimal_;}
-		int16_t getKdInteger() const {return kd_integer_;}
-		int16_t getKdDecimal() const {return kd_decimal_;}
+		int16_t getMitKpInteger() const {return mit_kp_integer_;}
+		int16_t getMitKpDecimal() const {return mit_kp_decimal_;}
+		int16_t getMitKdInteger() const {return mit_kd_integer_;}
+		int16_t getMitKdDecimal() const {return mit_kd_decimal_;}
+		uint16_t getMitCurrentLimit() const {return mit_current_limit_;}
 		bool getConfigured() const {return configured_;}
 		bool getWatchdogTimedOut() const {return watchdog_timed_out_;}
 	void setIndex(uint8_t index) {index_ = index;}
@@ -104,10 +107,11 @@ public:
 	  bus_type_ = source.bus_type_;
 	  mode_ = source.mode_;
 	  operating_mode_ = source.operating_mode_;
-	  kp_integer_ = source.kp_integer_;
-	  kp_decimal_ = source.kp_decimal_;
-	  kd_integer_ = source.kd_integer_;
-	  kd_decimal_ = source.kd_decimal_;
+	  mit_kp_integer_ = source.mit_kp_integer_;
+	  mit_kp_decimal_ = source.mit_kp_decimal_;
+	  mit_kd_integer_ = source.mit_kd_integer_;
+	  mit_kd_decimal_ = source.mit_kd_decimal_;
+	  mit_current_limit_ = source.mit_current_limit_;
 	  p_gain_ = source.p_gain_;
 	  i_gain_ = source.i_gain_;
 	  d_gain_ = source.d_gain_;

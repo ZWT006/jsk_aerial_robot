@@ -360,18 +360,21 @@ void CANInitializer::receiveDataCallback(uint8_t slave_id, uint8_t message_id, u
 	        servo->bus_type_ = data[2];
 	        servo->operating_mode_ = data[3];
 	        servo->configured_ = data[4] != 0;
-	        servo->kp_integer_ = static_cast<int16_t>(
+	        servo->mit_kp_integer_ = static_cast<int16_t>(
 	          static_cast<uint16_t>(data[6]) |
 	          (static_cast<uint16_t>(data[7]) << 8));
-	        servo->kp_decimal_ = static_cast<int16_t>(
+	        servo->mit_kp_decimal_ = static_cast<int16_t>(
 	          static_cast<uint16_t>(data[8]) |
 	          (static_cast<uint16_t>(data[9]) << 8));
-	        servo->kd_integer_ = static_cast<int16_t>(
+	        servo->mit_kd_integer_ = static_cast<int16_t>(
 	          static_cast<uint16_t>(data[10]) |
 	          (static_cast<uint16_t>(data[11]) << 8));
-	        servo->kd_decimal_ = static_cast<int16_t>(
+	        servo->mit_kd_decimal_ = static_cast<int16_t>(
 	          static_cast<uint16_t>(data[12]) |
 	          (static_cast<uint16_t>(data[13]) << 8));
+	        servo->mit_current_limit_ =
+	          static_cast<uint16_t>(data[14]) |
+	          (static_cast<uint16_t>(data[15]) << 8);
 	        neuron_[index].markConfigurationFragment(servo_index, 0x08);
 	        break;
 	      }

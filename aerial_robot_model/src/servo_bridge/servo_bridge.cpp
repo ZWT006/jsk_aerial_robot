@@ -67,11 +67,12 @@ struct DirectServoStartupConfig
   uint8_t bus_type = spinal::ServoInfo::BUS_UNKNOWN;
   uint8_t mode = spinal::ServoInfo::MODE_UNKNOWN;
   bool mode_set = false;
-  bool mit_pd_set = false;
-  int32_t kp_integer = 0;
-  int32_t kp_decimal = 0;
-  int32_t kd_integer = 0;
-  int32_t kd_decimal = 0;
+  bool mit_config_set = false;
+  int32_t mit_kp_integer = 0;
+  int32_t mit_kp_decimal = 0;
+  int32_t mit_kd_integer = 0;
+  int32_t mit_kd_decimal = 0;
+  int32_t mit_current_limit = 0;
   OptionalInt p_gain;
   OptionalInt i_gain;
   OptionalInt d_gain;
@@ -254,24 +255,43 @@ DirectServoStartupConfig makeDirectServoConfig(
     controller, group, "servo_resolution", 1, UINT16_MAX - 1);
 
   XmlRpc::XmlRpcValue kp_value;
-  if (getInheritedValue(controller, group, "mit_kp_si", kp_value)) {
+  XmlRpc::XmlRpcValue kd_value;
+  XmlRpc::XmlRpcValue effort_limit_value;
+  const bool kp_set =
+    getInheritedValue(controller, group, "mit_kp_si", kp_value);
+  const bool kd_set =
+    getInheritedValue(controller, group, "mit_kd_si", kd_value);
+  const bool effort_limit_set = getInheritedValue(
+    controller, group, "mit_effort_limit_si", effort_limit_value);
+  if (kp_set || kd_set || effort_limit_set) {
+    if (!kp_set || !kd_set || !effort_limit_set) {
+      throw std::runtime_error(
+        name + ": mit_kp_si, mit_kd_si and mit_effort_limit_si "
+        "must be configured together");
+    }
     if (!(angle_scale > 0.0) || !(torque_scale > 0.0))
       throw std::runtime_error(name + ": mit_kp_si requires positive angle_scale and torque_scale");
     encodeMitGain(
       xmlRpcNumber(kp_value, name + ".mit_kp_si") *
         angle_scale / torque_scale,
-      name + ".mit_kp_si", config.kp_integer, config.kp_decimal);
-    config.mit_pd_set = true;
-  }
-  XmlRpc::XmlRpcValue kd_value;
-  if (getInheritedValue(controller, group, "mit_kd_si", kd_value)) {
+      name + ".mit_kp_si", config.mit_kp_integer, config.mit_kp_decimal);
     if (!(velocity_scale > 0.0) || !(torque_scale > 0.0))
       throw std::runtime_error(name + ": mit_kd_si requires positive velocity_scale and torque_scale");
     encodeMitGain(
       xmlRpcNumber(kd_value, name + ".mit_kd_si") *
         velocity_scale / torque_scale,
-      name + ".mit_kd_si", config.kd_integer, config.kd_decimal);
-    config.mit_pd_set = true;
+      name + ".mit_kd_si", config.mit_kd_integer, config.mit_kd_decimal);
+    const double effort_limit_si = xmlRpcNumber(
+      effort_limit_value, name + ".mit_effort_limit_si");
+    if (!std::isfinite(effort_limit_si) || effort_limit_si < 0.0)
+      throw std::runtime_error(
+        name + ": mit_effort_limit_si must be finite and non-negative");
+    const double raw_limit = std::floor(effort_limit_si / torque_scale);
+    if (raw_limit > UINT16_MAX)
+      throw std::runtime_error(
+        name + ": mit_effort_limit_si exceeds the MCU current range");
+    config.mit_current_limit = static_cast<int32_t>(raw_limit);
+    config.mit_config_set = true;
   }
   return config;
 }
@@ -557,15 +577,18 @@ bool configureDirectServos(
         return false;
       }
     }
-    if (config.mit_pd_set &&
-        (config.kp_integer != servo->kp_integer ||
-         config.kp_decimal != servo->kp_decimal ||
-         config.kd_integer != servo->kd_integer ||
-         config.kd_decimal != servo->kd_decimal) &&
+    if (config.mit_config_set &&
+        (config.mit_kp_integer != servo->mit_kp_integer ||
+         config.mit_kp_decimal != servo->mit_kp_decimal ||
+         config.mit_kd_integer != servo->mit_kd_integer ||
+         config.mit_kd_decimal != servo->mit_kd_decimal ||
+         config.mit_current_limit != servo->mit_current_limit) &&
         !write_servo_config(config,
           spinal::SetDirectServoConfig::Request::SET_SERVO_MIT_PD,
-          {config.kp_integer, config.kp_decimal, config.kd_integer,
-           config.kd_decimal}, config.name + " MIT PD")) {
+          {config.mit_kp_integer, config.mit_kp_decimal,
+           config.mit_kd_integer, config.mit_kd_decimal,
+           config.mit_current_limit},
+          config.name + " MIT configuration")) {
       return false;
     }
   }
@@ -625,11 +648,12 @@ bool configureDirectServos(
       (config.servo_resolution.set &&
        config.servo_resolution.value !=
          static_cast<uint16_t>(servo->servo_resolution)) ||
-      (config.mit_pd_set &&
-       (config.kp_integer != servo->kp_integer ||
-        config.kp_decimal != servo->kp_decimal ||
-        config.kd_integer != servo->kd_integer ||
-        config.kd_decimal != servo->kd_decimal));
+      (config.mit_config_set &&
+       (config.mit_kp_integer != servo->mit_kp_integer ||
+        config.mit_kp_decimal != servo->mit_kp_decimal ||
+        config.mit_kd_integer != servo->mit_kd_integer ||
+        config.mit_kd_decimal != servo->mit_kd_decimal ||
+        config.mit_current_limit != servo->mit_current_limit));
     if (optional_mismatch) {
       ROS_ERROR("Final optional-parameter readback failed for %s",
                 config.name.c_str());

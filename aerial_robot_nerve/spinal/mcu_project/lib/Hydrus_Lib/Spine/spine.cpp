@@ -127,10 +127,11 @@ namespace Spine
 	        board.servos[j].bus_type = s.getBusType();
 	        board.servos[j].mode = s.getMode();
 	        board.servos[j].servo_mode = s.getOperatingMode();
-	        board.servos[j].kp_integer = s.getKpInteger();
-	        board.servos[j].kp_decimal = s.getKpDecimal();
-	        board.servos[j].kd_integer = s.getKdInteger();
-	        board.servos[j].kd_decimal = s.getKdDecimal();
+	        board.servos[j].mit_kp_integer = s.getMitKpInteger();
+	        board.servos[j].mit_kp_decimal = s.getMitKpDecimal();
+	        board.servos[j].mit_kd_integer = s.getMitKdInteger();
+	        board.servos[j].mit_kd_decimal = s.getMitKdDecimal();
+	        board.servos[j].mit_current_limit = s.getMitCurrentLimit();
         board.servos[j].p_gain = s.getPGain();
         board.servos[j].i_gain = s.getIGain();
         board.servos[j].d_gain = s.getDGain();

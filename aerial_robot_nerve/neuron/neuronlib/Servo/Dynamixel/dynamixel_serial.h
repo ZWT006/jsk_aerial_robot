@@ -392,8 +392,8 @@ public:
     goal_position_(0), goal_velocity_(0),
     goal_current_(0), pvc_update_count_(0), last_target_tick_(0),
     target_received_(false), watchdog_timed_out_(false),
-    configured_(false), kp_integer_(0), kp_decimal_(0),
-    kd_integer_(0), kd_decimal_(0), calib_value_(0),
+    configured_(false), mit_kp_integer_(0), mit_kp_decimal_(0),
+    mit_kd_integer_(0), mit_kd_decimal_(0), mit_current_limit_(0), calib_value_(0),
     homing_offset_(0), internal_offset_(0), pulley_skip_time_(0),
     pulley_skip_reset_du_(1000), present_temp_(0),
     present_current_(0), moving_(0), model_number_(0),
@@ -421,8 +421,9 @@ public:
 	bool target_received_;
 	bool watchdog_timed_out_;
 	bool configured_;
-	int16_t kp_integer_, kp_decimal_;
-	int16_t kd_integer_, kd_decimal_;
+	int16_t mit_kp_integer_, mit_kp_decimal_;
+	int16_t mit_kd_integer_, mit_kd_decimal_;
+	uint16_t mit_current_limit_;
         int32_t calib_value_;
 	int32_t homing_offset_;
         int32_t internal_offset_;

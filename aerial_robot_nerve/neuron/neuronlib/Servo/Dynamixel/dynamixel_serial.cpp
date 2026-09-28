@@ -639,7 +639,7 @@ uint8_t DynamixelSerial::configure(uint8_t command, const int32_t* data,
     expected_length = 4;
     break;
   case CAN::SERVO_CONFIG_SET_MIT_PD:
-    expected_length = 5;
+    expected_length = 6;
     break;
   default:
     return CAN::SERVO_CONFIG_RESULT_INVALID;
@@ -754,13 +754,15 @@ uint8_t DynamixelSerial::configure(uint8_t command, const int32_t* data,
     if (data[1] < 0 || data[1] > INT16_MAX ||
         data[2] < 0 || data[2] >= NEURON_MIT_GAIN_SCALE ||
         data[3] < 0 || data[3] > INT16_MAX ||
-        data[4] < 0 || data[4] >= NEURON_MIT_GAIN_SCALE) {
+        data[4] < 0 || data[4] >= NEURON_MIT_GAIN_SCALE ||
+        data[5] < 0 || data[5] > UINT16_MAX) {
       return CAN::SERVO_CONFIG_RESULT_INVALID;
     }
-    servo.kp_integer_ = data[1];
-    servo.kp_decimal_ = data[2];
-    servo.kd_integer_ = data[3];
-    servo.kd_decimal_ = data[4];
+    servo.mit_kp_integer_ = data[1];
+    servo.mit_kp_decimal_ = data[2];
+    servo.mit_kd_integer_ = data[3];
+    servo.mit_kd_decimal_ = data[4];
+    servo.mit_current_limit_ = data[5];
     return CAN::SERVO_CONFIG_RESULT_OK;
   case CAN::SERVO_CONFIG_SET_HOMING_OFFSET:
     if (servo.torque_enable_ || data[1] < -1044479 || data[1] > 1044479) {
@@ -1147,20 +1149,21 @@ int16_t DynamixelSerial::calculateMITGoalCurrent(
       servo.watchdog_timed_out_) return 0;
 
   const int64_t kp_scaled =
-    static_cast<int64_t>(servo.kp_integer_) * NEURON_MIT_GAIN_SCALE +
-    servo.kp_decimal_;
+    static_cast<int64_t>(servo.mit_kp_integer_) * NEURON_MIT_GAIN_SCALE +
+    servo.mit_kp_decimal_;
   const int64_t kd_scaled =
-    static_cast<int64_t>(servo.kd_integer_) * NEURON_MIT_GAIN_SCALE +
-    servo.kd_decimal_;
+    static_cast<int64_t>(servo.mit_kd_integer_) * NEURON_MIT_GAIN_SCALE +
+    servo.mit_kd_decimal_;
   const int64_t current_scaled =
     static_cast<int64_t>(servo.goal_current_) * NEURON_MIT_GAIN_SCALE +
     kp_scaled * (static_cast<int64_t>(servo.goal_position_) -
                  servo.present_position_) +
     kd_scaled * (static_cast<int64_t>(servo.goal_velocity_) -
                  servo.delta_position_velocity_);
-  return clampGoalCurrent(
+  const int16_t mit_limited_current = clampGoalCurrent(
     symmetricDivide(current_scaled, NEURON_MIT_GAIN_SCALE),
-    servo.current_limit_);
+    servo.mit_current_limit_);
+  return clampGoalCurrent(mit_limited_current, servo.current_limit_);
 }
 
 void DynamixelSerial::update()
