@@ -1,0 +1,199 @@
+<?xml version="1.0"?>
+<!--
+  Standalone model of the terminal SPIDAR leg segment extracted from
+  spidar_v1_leg.urdf. joint_junction_link is retained as the root link so
+  joint8_pitch has a valid parent.
+-->
+<robot name="leg">
+  <!-- Root / pitch-joint support -->
+  <link name="joint_junction_link">
+    <inertial>
+      <origin xyz="0.026 0.004 0.004" rpy="0 0 0"/>
+      <mass value="0.095"/>
+      <inertia
+        ixx="0.000074" ixy="0.000009" ixz="-0.000009"
+        iyy="0.000079" iyz="-0.000001" izz="0.000079"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/joint_junction_link.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <gazebo reference="joint_junction_link8">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <joint name="joint_pitch" type="revolute">
+    <parent link="joint_junction_link8"/>
+    <child link="link"/>
+    <origin xyz="0.0515 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.9107963267948966" upper="1.9107963267948966" effort="6.6" velocity="0.1"/>
+    <dynamics damping="0.9" friction="0.0"/>
+  </joint>
+
+  <!-- Terminal/end link -->
+  <link name="link">
+    <inertial>
+      <origin xyz="0.157 0.015 0" rpy="0 0 0"/>
+      <mass value="0.347"/>
+      <inertia
+        ixx="0.000276" ixy="-0.000606" ixz="-0.000031"
+        iyy="0.008551" iyz="0.000001" izz="0.008772"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/end_link.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.2515 0 0" rpy="0 1.5707963267948966 0"/>
+      <geometry>
+        <cylinder length="0.423" radius="0.025"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <gazebo reference="link">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <!-- Two-axis gimbal -->
+  <joint name="gimbal_roll" type="continuous">
+    <parent link="link"/>
+    <child link="gimbal_roll_module"/>
+    <origin xyz="0.268 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit effort="1.5" velocity="10.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <link name="gimbal_roll_module">
+    <inertial>
+      <origin xyz="0.0145839 -0.0007152 -0.0219046" rpy="0 0 0"/>
+      <mass value="0.275"/>
+      <inertia
+        ixx="0.000456" ixy="0.000003" ixz="-0.000125"
+        iyy="0.000504" iyz="-0.000009" izz="0.000157"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/roll_link.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <gazebo reference="gimbal_roll_module">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <joint name="gimbal_pitch" type="continuous">
+    <parent link="gimbal_roll_module"/>
+    <child link="gimbal_pitch_module"/>
+    <origin xyz="-0.0065 0 -0.027" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="1.5" velocity="10.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
+  </joint>
+
+  <link name="gimbal_pitch_module">
+    <inertial>
+      <origin xyz="0.0000111 -0.0015087 -0.0010901" rpy="0 0 0"/>
+      <mass value="0.434"/>
+      <inertia
+        ixx="0.007595" ixy="0.000000" ixz="0.000000"
+        iyy="0.000401" iyz="0.000010" izz="0.007781"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/pitch_link.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <gazebo reference="gimbal_pitch_module">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <!-- Foot attached to the tip of the end link -->
+  <joint name="link2link_foot" type="fixed">
+    <parent link="link"/>
+    <child link="link_foot"/>
+    <origin xyz="0.5115 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="link_foot">
+    <inertial>
+      <origin xyz="0.007 0 0" rpy="0 0 0"/>
+      <mass value="0.09"/>
+      <inertia
+        ixx="0.000055" ixy="0" ixz="0"
+        iyy="0.000047" iyz="0" izz="0.000055"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/leg_cap.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.04"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <gazebo reference="link_foot">
+    <mu1>0</mu1>
+    <mu2>0</mu2>
+  </gazebo>
+
+  <!-- Actuator interfaces for the three retained movable joints -->
+  <transmission name="joint_pitch_tran">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_pitch">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="joint_pitch_servo">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+
+  <transmission name="gimbal_roll_tran">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="gimbal_roll">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="gimbal_roll_servo">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+
+  <transmission name="gimbal_pitch_tran">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="gimbal_pitch">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="gimbal_pitch_servo">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+</robot>

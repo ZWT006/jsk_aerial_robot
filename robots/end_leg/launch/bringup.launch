@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="robot_ns" default="end_leg"/>
+  <arg name="serial_port" default="/dev/flight_controller"/>
+  <arg name="serial_baud" default="2000000"/>
+
+  <group ns="$(arg robot_ns)">
+    <rosparam command="load" file="$(find end_leg)/config/Servo.yaml"/>
+    <param name="robot_description"
+           textfile="$(find end_leg)/direct_servo.urdf"/>
+
+    <include file="$(find spinal)/launch/bridge.launch">
+      <arg name="mode" value="serial"/>
+      <arg name="serial_port" value="$(arg serial_port)"/>
+      <arg name="serial_baud" value="$(arg serial_baud)"/>
+    </include>
+
+    <node pkg="aerial_robot_model" type="servo_bridge_node"
+          name="servo_bridge" output="screen"/>
+  </group>
+</launch>

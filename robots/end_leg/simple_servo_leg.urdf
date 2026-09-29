@@ -1,0 +1,173 @@
+<?xml version="1.0"?>
+<!--
+  Simplified terminal SPIDAR leg. Only joint_pitch_servo is movable; the
+  remaining joints are fixed and the gimbal-pitch link is omitted.
+
+  Composite properties about the joint_pitch_servo Y axis. These include the
+  moving subtree (link, gimbal_roll_module, and link_foot) and exclude the
+  fixed parent-side joint_junction_link:
+    Mass      = 0.712000 kg
+    COM       = (0.251200, 0.007034, -0.008460) m from the joint origin
+    ComLength = sqrt(COM_x^2 + COM_z^2) = 0.251343 m
+    Inertia J = sum(I_yy + m * (x^2 + z^2)) = 0.0639427 kg*m^2
+-->
+<robot name="simple_leg">
+  <!--
+    Gazebo treats a link named "world" as the inertial world when it is the
+    parent of a fixed joint.  The +90 degree pitch points the leg downward at
+    zero joint position, which is the gravity-stable hanging pose.  The 0.8 m
+    height keeps the foot clear of the ground over the calibration range.
+  -->
+  <link name="world"/>
+
+  <joint name="world_to_joint_junction" type="fixed">
+    <parent link="world"/>
+    <child link="joint_junction_link"/>
+    <origin xyz="0 0 0.8" rpy="0 1.5707963267948966 0"/>
+  </joint>
+
+  <!-- Root / pitch-joint support -->
+  <link name="joint_junction_link">
+    <inertial>
+      <origin xyz="0.026 0.004 0.004" rpy="0 0 0"/>
+      <mass value="0.095"/>
+      <inertia
+        ixx="0.000074" ixy="0.000009" ixz="-0.000009"
+        iyy="0.000079" iyz="-0.000001" izz="0.000079"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/joint_junction_link.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <gazebo reference="joint_junction_link">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <joint name="joint_pitch_servo" type="revolute">
+    <parent link="joint_junction_link"/>
+    <child link="link"/>
+    <origin xyz="0.0515 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="10.0" lower="-1.5707963267948966" upper="1.5707963267948966" velocity="0.1"/>
+    <dynamics damping="0.9" friction="0.05"/>
+  </joint>
+
+  <!-- Terminal/end link -->
+  <link name="link">
+    <inertial>
+      <origin xyz="0.157 0.015 0" rpy="0 0 0"/>
+      <mass value="0.347"/>
+      <inertia
+        ixx="0.000276" ixy="-0.000606" ixz="-0.000031"
+        iyy="0.008551" iyz="0.000001" izz="0.008772"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/end_link.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.2515 0 0" rpy="0 1.5707963267948966 0"/>
+      <geometry>
+        <cylinder length="0.423" radius="0.025"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <gazebo reference="link">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <!-- Simplified fixed gimbal-roll mount -->
+  <joint name="gimbal_roll" type="fixed">
+    <parent link="link"/>
+    <child link="gimbal_roll_module"/>
+    <origin xyz="0.268 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="gimbal_roll_module">
+    <inertial>
+      <origin xyz="0.0145839 -0.0007152 -0.0219046" rpy="0 0 0"/>
+      <mass value="0.275"/>
+      <inertia
+        ixx="0.000456" ixy="0.000003" ixz="-0.000125"
+        iyy="0.000504" iyz="-0.000009" izz="0.000157"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/roll_link.dae"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <gazebo reference="gimbal_roll_module">
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+    <dampingFactor>0.00</dampingFactor>
+  </gazebo>
+
+  <!-- Foot attached to the tip of the end link -->
+  <joint name="link2link_foot" type="fixed">
+    <parent link="link"/>
+    <child link="link_foot"/>
+    <origin xyz="0.5115 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <link name="link_foot">
+    <inertial>
+      <origin xyz="0.007 0 0" rpy="0 0 0"/>
+      <mass value="0.09"/>
+      <inertia
+        ixx="0.000055" ixy="0" ixz="0"
+        iyy="0.000047" iyz="0" izz="0.000055"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://end_leg/mesh/leg_cap.dae"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.04"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <gazebo reference="link_foot">
+    <mu1>0</mu1>
+    <mu2>0</mu2>
+  </gazebo>
+
+  <!-- Actuator interface for the only movable joint -->
+  <transmission name="joint_pitch_servo_tran">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_pitch_servo">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="joint_pitch_servo_actuator">
+      <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+
+  <!-- Minimal ros_control interface used only by the Gazebo launch. -->
+  <gazebo>
+    <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+      <robotNamespace>/end_leg</robotNamespace>
+      <robotParam>robot_description</robotParam>
+      <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
+    </plugin>
+  </gazebo>
+</robot>

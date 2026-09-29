@@ -1,0 +1,32 @@
+# Gazebo-local single-joint controller. Conversion values mirror Dragon joints.
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 100
+
+servo_controller:
+  state_sub_topic: servo/states
+  pos_pub_topic: servo/target_states
+  servo_enable_pub_topic: servo/torque_enable
+
+  joints:
+    angle_sgn: 1
+    angle_scale: 0.00076699
+    velocity_scale: 0.01199041 # 0.229 [rev/min] -> rad/s, scaled by 2:1 pulley
+    zero_point_offset: 2047
+    torque_scale: 0.0106
+
+    filter_flag: true
+    sample_freq: 50.0
+    cutoff_freq: 10.0
+    no_real_state: false
+
+    simulation:
+      type: effort_controllers/JointPositionController
+      pid: {p: 50.0, i: 0.01, d: 1.0, i_clamp_min: -6.6, i_clamp_max: 6.6}
+      init_value: 0.0
+
+    controller1:
+      # Matches Dragon's first pitch-servo index. The ID is irrelevant to the
+      # Gazebo backend but keeps the local conversion parameters consistent.
+      id: 1
+      name: joint_pitch_servo

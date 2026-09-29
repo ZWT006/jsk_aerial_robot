@@ -264,7 +264,7 @@ int main(void)
   idleTaskHandle = osThreadCreate(osThread(idleTask), NULL);
 
   /* definition and creation of servoTask */
-  osThreadDef(servoTask, servoTaskCallback, osPriorityNormal, 0, 512);
+  osThreadDef(servoTask, servoTaskCallback, osPriorityRealtime, 0, 512);
   servoTaskHandle = osThreadCreate(osThread(servoTask), NULL);
 
   /* definition and creation of coreTask */
@@ -821,7 +821,8 @@ void servoTaskCallback(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-    servo_.update();
+    if (servo_.update())
+      osSemaphoreRelease(canTxSemHandle);
     osDelay(1);
   }
   /* USER CODE END servoTaskCallback */

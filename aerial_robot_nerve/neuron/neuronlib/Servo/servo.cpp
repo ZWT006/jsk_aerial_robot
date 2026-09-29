@@ -157,6 +157,49 @@ void Servo::processConfigRequest()
   bool response_required = false;
   std::array<int32_t, 6> data = {};
 
+#ifdef STM32G4
+  taskENTER_CRITICAL();
+  const bool pending = config_request_pending_;
+  sequence = config_sequence_;
+  command = config_command_;
+  data_length = config_data_length_;
+  response_required = config_response_required_;
+  data = config_data_;
+  taskEXIT_CRITICAL();
+
+  if (pending)
+  {
+    if (servo_handler_.queueConfigRequest(command, data.data(), data_length))
+    {
+      taskENTER_CRITICAL();
+      config_request_pending_ = false;
+      taskEXIT_CRITICAL();
+    }
+    else
+    {
+      if (response_required)
+      {
+        sendConfigResponse(sequence, command, CAN::SERVO_CONFIG_RESULT_BUSY, nullptr, 0);
+      }
+      taskENTER_CRITICAL();
+      config_request_pending_ = false;
+      config_request_busy_ = false;
+      taskEXIT_CRITICAL();
+      return;
+    }
+  }
+
+  uint8_t result = 0;
+  if (!servo_handler_.takeConfigResult(result))
+    return;
+  if (response_required)
+  {
+    sendConfigResponse(sequence, command, result, data.data(), data_length);
+  }
+  taskENTER_CRITICAL();
+  config_request_busy_ = false;
+  taskEXIT_CRITICAL();
+#else
   taskENTER_CRITICAL();
   if (!config_request_pending_) {
     taskEXIT_CRITICAL();
@@ -175,17 +218,22 @@ void Servo::processConfigRequest()
   if (response_required) {
     sendConfigResponse(sequence, command, result, data.data(), data_length);
   }
-
   taskENTER_CRITICAL();
   config_request_busy_ = false;
   taskEXIT_CRITICAL();
+#endif
 }
 
 bool Servo::update()
 {
   processConfigRequest();
   servo_handler_.update();
-  return servo_handler_.takeTargetCycleComplete();
+#ifdef STM32G4
+  processConfigRequest();
+  return servo_handler_.takeFeedbackCycleEvent();
+#else
+  return false;
+#endif
 }
 
 void Servo::sendData()
@@ -201,11 +249,14 @@ void Servo::sendData()
     (1000U + feedback_frequency - 1U) / feedback_frequency;
   const uint32_t now = HAL_GetTick();
   if (now - last_feedback_send_tick_ < feedback_interval) return;
+  if (!servo_handler_.takeFeedbackFresh())
+    return;
   last_feedback_send_tick_ = now;
 
   const unsigned int servo_count = std::min<unsigned int>(
     CAN::CANFD_MAX_SERVO_NUM, servo_handler_.getServoNum());
   const uint8_t sequence = state_sequence_++;
+  bool success = true;
 
   for (unsigned int i = 0; i < servo_count; ++i) {
     const ServoData& servo = servo_handler_.getServo()[i];
@@ -222,9 +273,10 @@ void Servo::sendData()
          ? CAN::SERVO_STATE_WATCHDOG_TIMEOUT : 0) |
       (servo.configured_ ? CAN::SERVO_STATE_CONFIGURED : 0);
 
-    if (servo.pvc_update_count_ != last_sent_pvc_update_count_[i]) {
+    const bool pvc_fresh = servo.pvc_update_count_ != last_sent_pvc_update_count_[i];
+    if (pvc_fresh)
+    {
       flags |= CAN::SERVO_STATE_PVC_FRESH;
-      last_sent_pvc_update_count_[i] = servo.pvc_update_count_;
     }
 
     data[0] = CAN::CANFD_PROTOCOL_VERSION;
@@ -239,9 +291,20 @@ void Servo::sendData()
     data[14] = servo.present_temp_;
     data[15] = servo.hardware_error_status_;
 
-    sendMessage(CAN::MESSAGEID_SEND_SERVO_LIST[i], m_slave_id,
-                CAN::CANFD_SERVO_STATE_DLC, data, 1);
+    if (sendMessage(CAN::MESSAGEID_SEND_SERVO_LIST[i], m_slave_id, CAN::CANFD_SERVO_STATE_DLC, data, 1))
+    {
+      if (pvc_fresh)
+      {
+        last_sent_pvc_update_count_[i] = servo.pvc_update_count_;
+      }
+    }
+    else
+    {
+      success = false;
+    }
   }
+  if (!success)
+    servo_handler_.restoreFeedbackFresh();
 #else
   for (unsigned int i = 0; i < servo_handler_.getServoNum(); i++) {
     const ServoData& s = servo_handler_.getServo()[i];
@@ -301,41 +364,25 @@ void Servo::receiveDataCallback(uint8_t message_id, uint32_t DLC,
 
   last_target_sequence_ = data[1];
   const uint8_t valid_mask = data[2];
+  std::array<DynamixelSerial::ServoTarget, MAX_SERVO_NUM> targets{};
   for (uint8_t i = 0; i < data[3]; ++i) {
     if ((valid_mask & (1U << i)) == 0) continue;
 
-    ServoData& servo = servo_handler_.getServo()[i];
     const uint8_t* record =
       data + SERVO_TARGET_HEADER_SIZE + i * SERVO_TARGET_RECORD_SIZE;
     const uint8_t flags = record[0];
-
-    // Apply the state transition before evaluating targets carried by the
-    // same CAN FD frame. This preserves the debug behavior for explicit
-    // disable while allowing the first target of an enable frame through.
-    servo_handler_.setTorque(
-      i, (flags & CAN::SERVO_TARGET_TORQUE_ENABLE) != 0);
-
-    bool has_position = false;
-    int32_t position = 0;
-    if ((flags & CAN::SERVO_TARGET_POSITION_VALID) != 0 &&
-        servo.torque_enable_) {
-      if (!servo.send_goal_position_ ||
-          (flags & CAN::SERVO_TARGET_POSITION_ACK) != 0) {
-        servo.send_goal_position_ = false;
-        has_position = true;
-        position = readInt32(record + 2);
-      }
-    }
-    const bool has_velocity = servo.torque_enable_ &&
-      (flags & CAN::SERVO_TARGET_VELOCITY_VALID) != 0;
-    const bool has_current = servo.torque_enable_ &&
-      (flags & CAN::SERVO_TARGET_CURRENT_VALID) != 0;
-    servo_handler_.setGoalTargets(
-      i, has_position, position,
-      has_velocity, has_velocity ? readInt32(record + 6) : 0,
-      has_current, has_current ? readInt16(record + 10) : 0);
+    DynamixelSerial::ServoTarget& target = targets[i];
+    target.valid = true;
+    target.torque_enable = (flags & CAN::SERVO_TARGET_TORQUE_ENABLE) != 0;
+    target.position_valid = (flags & CAN::SERVO_TARGET_POSITION_VALID) != 0;
+    target.position_ack = (flags & CAN::SERVO_TARGET_POSITION_ACK) != 0;
+    target.velocity_valid = (flags & CAN::SERVO_TARGET_VELOCITY_VALID) != 0;
+    target.current_valid = (flags & CAN::SERVO_TARGET_CURRENT_VALID) != 0;
+    target.position = readInt32(record + 2);
+    target.velocity = readInt32(record + 6);
+    target.current = readInt16(record + 10);
   }
-  servo_handler_.startTargetCycle();
+  servo_handler_.submitTargetFrame(targets, HAL_GetTick());
 #else
   switch (message_id) {
   case CAN::MESSAGEID_RECEIVE_SERVO_ANGLE:

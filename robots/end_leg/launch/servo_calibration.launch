@@ -1,0 +1,133 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Calibration node only. The simulator or end_leg bringup must exist first. -->
+  <arg name="simulation" default="true"/>
+  <arg name="effort_ctrl" default="true"/>
+  <arg name="enable_save" default="true"/>
+  <arg name="save_path" default="/home/wentao"/>
+
+  <arg name="robot_id" default=""/>
+  <arg name="real_robot_ns" default="end_leg$(arg robot_id)"/>
+  <arg name="real_joint_name" default="gimbal1"/>
+
+  <arg name="control_freq" default="200"/>
+  <arg name="feedback_delay_step" default="3"/>
+  <arg name="command_delay_step" default="3"/>
+  <arg name="decimation" default="4"/>
+
+  <!-- Dataset preset: PassiveSet (50 s, manually released from +/-0.9 rad).-->
+  <!-- <arg name="auto_swing" default="false"/>
+  <arg name="duration" default="100"/>
+  <arg name="default_position" default="0.0"/>
+  <arg name="joint_range" default="1.57"/>
+  <arg name="cmd_period" default="1.0"/>
+  <arg name="period_scale" default="50"/>
+  <arg name="sweep_mode" default="false"/>
+  <arg name="step_mode" default="false"/>
+  <arg name="step_height" default="0.05"/> -->
+ 
+
+  <!-- Dataset preset: IdentSet (100 s sweep, 0.1-5.0 s period).-->
+  <!-- <arg name="auto_swing" default="true"/>
+  <arg name="duration" default="100"/>
+  <arg name="default_position" default="0.0"/>
+  <arg name="joint_range" default="0.9"/>
+  <arg name="cmd_period" default="0.02"/>
+  <arg name="period_scale" default="100"/>
+  <arg name="sweep_mode" default="true"/>
+  <arg name="step_mode" default="false"/>
+  <arg name="step_height" default="0.05"/> -->
+ 
+
+  <!-- Dataset preset: StepSet (active; 100 s, 0.05 rad steps). -->
+  <!-- <arg name="auto_swing" default="true"/>
+  <arg name="duration" default="100"/>
+  <arg name="default_position" default="0.0"/>
+  <arg name="joint_range" default="0.9"/>
+  <arg name="cmd_period" default="2.0"/>
+  <arg name="period_scale" default="50"/>
+  <arg name="sweep_mode" default="false"/>
+  <arg name="step_mode" default="true"/>
+  <arg name="step_height" default="0.1"/> -->
+
+  <!-- Dataset preset: MultiSet (245 s, 10 s base period).-->
+  <arg name="auto_swing" default="true"/>
+  <arg name="duration" default="245"/>
+  <arg name="default_position" default="0.0"/>
+  <arg name="joint_range" default="0.9"/>
+  <arg name="cmd_period" default="10.0"/>
+  <arg name="period_scale" default="50"/>
+  <arg name="sweep_mode" default="false"/>
+  <arg name="step_mode" default="false"/>
+  <arg name="step_height" default="0.05"/>
+ 
+
+  <arg name="kp" default="4.8309"/>
+  <arg name="kd" default="0.30755"/>
+  <arg name="effort_limit" default="6.2"/>
+  <arg name="state_timeout" default="0.5"/>
+
+  <group ns="end_leg" if="$(arg simulation)">
+    <node pkg="end_leg" type="leg_servo_calibration_node"
+          name="leg_servo_calibration" output="screen">
+      <param name="simulation" value="true"/>
+      <param name="effort_ctrl" value="$(arg effort_ctrl)"/>
+      <param name="joint_name" value="joint_pitch_servo"/>
+      <param name="auto_swing" value="$(arg auto_swing)"/>
+      <param name="state_topic" value="joint_states"/>
+      <param name="command_topic" value="joints_ctrl"/>
+      <param name="effort_command_topic"
+             value="servo_controller/joints/controller1/simulation/command"/>
+      <param name="control_freq" value="$(arg control_freq)"/>
+      <param name="decimation" value="$(arg decimation)"/>
+      <param name="feedback_delay_step" value="$(arg feedback_delay_step)"/>
+      <param name="command_delay_step" value="$(arg command_delay_step)"/>
+      <param name="duration" value="$(arg duration)"/>
+      <param name="default_position" value="$(arg default_position)"/>
+      <param name="joint_range" value="$(arg joint_range)"/>
+      <param name="cmd_period" value="$(arg cmd_period)"/>
+      <param name="period_scale" value="$(arg period_scale)"/>
+      <param name="sweep_mode" value="$(arg sweep_mode)"/>
+      <param name="step_mode" value="$(arg step_mode)"/>
+      <param name="step_height" value="$(arg step_height)"/>
+      <param name="kp" value="$(arg kp)"/>
+      <param name="kd" value="$(arg kd)"/>
+      <param name="effort_limit" value="$(arg effort_limit)"/>
+      <param name="state_timeout" value="$(arg state_timeout)"/>
+      <param name="enable_save" value="$(arg enable_save)"/>
+      <param name="save_path" value="$(arg save_path)"/>
+    </node>
+  </group>
+
+  <!-- Reuse the servo_bridge and Spinal connection from end_leg bringup. -->
+  <group ns="$(arg real_robot_ns)" unless="$(arg simulation)">
+    <node pkg="end_leg" type="leg_servo_calibration_node"
+          name="leg_servo_calibration" output="screen">
+      <param name="simulation" value="false"/>
+      <param name="effort_ctrl" value="$(arg effort_ctrl)"/>
+      <param name="joint_name" value="$(arg real_joint_name)"/>
+      <param name="auto_swing" value="$(arg auto_swing)"/>
+      <param name="state_topic" value="joint_states"/>
+      <param name="command_topic" value="gimbals_ctrl"/>
+      <param name="control_freq" value="$(arg control_freq)"/>
+      <param name="decimation" value="$(arg decimation)"/>
+      <!-- Communication delay is injected only in simulation. -->
+      <param name="feedback_delay_step" value="0"/>
+      <param name="command_delay_step" value="0"/>
+      <param name="duration" value="$(arg duration)"/>
+      <param name="default_position" value="$(arg default_position)"/>
+      <param name="joint_range" value="$(arg joint_range)"/>
+      <param name="cmd_period" value="$(arg cmd_period)"/>
+      <param name="period_scale" value="$(arg period_scale)"/>
+      <param name="sweep_mode" value="$(arg sweep_mode)"/>
+      <param name="step_mode" value="$(arg step_mode)"/>
+      <param name="step_height" value="$(arg step_height)"/>
+      <param name="kp" value="$(arg kp)"/>
+      <param name="kd" value="$(arg kd)"/>
+      <param name="effort_limit" value="$(arg effort_limit)"/>
+      <param name="state_timeout" value="$(arg state_timeout)"/>
+      <param name="enable_save" value="$(arg enable_save)"/>
+      <param name="save_path" value="$(arg save_path)"/>
+    </node>
+  </group>
+</launch>

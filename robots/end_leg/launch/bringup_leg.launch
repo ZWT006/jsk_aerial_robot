@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Gazebo environment only. Start servo_calibration.launch separately. -->
+  <arg name="effort_ctrl" default="true"/>
+  <arg name="gui" default="true"/>
+  <arg name="paused" default="false"/>
+  <arg name="world" default="$(find gazebo_ros)/worlds/empty.world"/>
+  <arg name="rviz" default="false"/>
+
+  <param name="/use_sim_time" value="true"/>
+
+  <group ns="end_leg">
+    <!-- Position mode: ROS JointPositionController. -->
+    <param name="robot_description"
+           textfile="$(find end_leg)/simple_servo_leg.urdf"
+           unless="$(arg effort_ctrl)"/>
+    <rosparam file="$(find end_leg)/config/SimServo.yaml"
+              command="load" unless="$(arg effort_ctrl)"/>
+
+    <!-- Effort mode: direct torque commanded by the calibration node. -->
+    <param name="robot_description"
+           textfile="$(find end_leg)/simple_leg.urdf"
+           if="$(arg effort_ctrl)"/>
+    <rosparam file="$(find end_leg)/config/MITServo.yaml"
+              command="load" if="$(arg effort_ctrl)"/>
+
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="robot_state_publisher" output="screen">
+      <param name="publish_frequency" value="100.0"/>
+    </node>
+
+    <node pkg="aerial_robot_model" type="servo_bridge_node"
+          name="servo_bridge" output="screen"/>
+  </group>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(arg world)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="use_sim_time" value="true"/>
+  </include>
+
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_end_leg"
+        output="screen"
+        args="-urdf -model end_leg -param /end_leg/robot_description"/>
+
+  <node pkg="controller_manager" type="spawner"
+        name="joint_state_controller_spawner" ns="end_leg"
+        output="screen" args="joint_state_controller"/>
+
+  <node pkg="rviz" type="rviz" name="rviz" if="$(arg rviz)"
+        args="-d $(find end_leg)/config/rviz.rviz" output="screen"/>
+</launch>

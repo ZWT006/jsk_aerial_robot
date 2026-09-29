@@ -16,6 +16,32 @@
 
 本文只针对 `neuron_g4` 的新控制路径。`neuron_f1`、`neuron_f4` 的旧行为不应在第一轮重构中改变。
 
+### 1.1 已确认的移植原则
+
+本项目首先是将 spinal H7/H7_v2 已验证的 direct-servo `servoTask` 调度逻辑移植到 neuron，而不是重新设计一套独立框架。第一轮只迁移 spinal 的调度骨架，并在其外围做最薄的 neuron/CAN 适配。
+
+直接或近似迁移的范围：
+
+- `ServoInstruction { command, servo_mask, feedback_cycle_mask }`；
+- all-or-none control-cycle batch；
+- 单个 `PendingTransaction`；
+- 绝对 5 ms deadline 的 `schedulePeriodicCommands()`；
+- 每个 `update()` 最多执行一个有效逻辑 instruction 的 `processInstructionQueue()`；
+- `watchdog -> pending completion -> urgent torque-off -> schedule -> process` 的主顺序；
+- 完整 CVP group 成功后提交 fresh measurement 的 mask 语义。
+
+必须原地保留的 neuron 实现：
+
+- 现有 `RingBuffer<T, 64>`，只调整 G4 的 payload，不引入 `RingBufferDx`；
+- mode-aware Bulk Write、CbP Position -> Current 顺序；
+- target/watchdog 语义、UART parser/recovery、bus mask helpers；
+- external encoder、pulley skip、force-off、position-sync ACK；
+- CAN protocol、异步 config response 和 Flash/config 校验。
+
+普通 instruction queue 采用单生产者：CAN RX 只发布 target/config mailbox 和 urgent torque-off，只有 `servoTask` 执行普通 enqueue/pop。因此第一轮不复制 spinal 为 ROS 多生产者准备的 `queue_mutex_`。CAN RX 不得直接向普通 instruction queue 入队。
+
+完全非阻塞 RX、pending-read abort、`vTaskDelayUntil()`、applied sequence、长断流 relock 和额外 instrumentation 属于 parity 验证后的独立加固，不混入第一轮调度骨架移植。
+
 ## 2. 已确认需求
 
 ### 2.1 servoTask 调度
@@ -25,7 +51,7 @@
 3. Dynamixel 高频闭环周期暂时保持当前配置：
    - `CONTROL_CYCLE_DU = 5 ms`
    - 闭环频率为 200 Hz
-4. 应使用绝对时间调度，例如 FreeRTOS `vTaskDelayUntil()`，避免 `update()` 执行时间累积到下一周期。
+4. Spinal parity 阶段沿用 H7/H7_v2 的 `servo_.update(); osDelay(1);` 和 Realtime priority；5 ms control cycle 本身使用 driver 内部绝对 deadline。`vTaskDelayUntil()` 属于 parity 后的独立 task-timing 加固。
 
 ### 2.2 CAN target
 
@@ -35,6 +61,8 @@
 4. CAN RX 不再调用 `startTargetCycle()` 触发完整读写。
 5. servoTask 在自己的 5 ms control cycle 中消费最新 target。
 6. 如果多个 CAN target 在一个 control cycle 内到达，应采用 latest-wins，不得把过期 target 全部排入 instruction queue。
+7. torque-off 是独立的安全事件：CAN RX 在发布 latest target 的同时原子置位 urgent-off mask，不等到下一个 5 ms control-cycle 边界。
+8. torque-on 不走 urgent 路径；它随 latest target/config state 由 `servoTask` 转成普通 instruction，并继续遵守 configured、EM、force-off 和 position-sync 检查。
 
 ### 2.3 CAN service/config request
 
@@ -42,11 +70,12 @@
 2. 与 spinal ROS service 不同，CAN RX task 不应等待 semaphore 获得同步结果。
 3. 推荐保留“最多一个 outstanding config request”的限制：
    - CAN RX 将请求内容复制到 service request slot。
-   - 将 `INST_SERVICE_REQUEST` 放入 servo instruction queue。
+   - `servoTask` 将 slot 转成 `INST_SERVICE_REQUEST` 并放入 servo instruction queue；CAN RX 不直接操作普通 queue。
    - servoTask 执行请求。
    - 完成后由 servoTask 调用 `sendConfigResponse()` 异步回复 CAN。
-   - 如果 slot 忙或 queue 满，立即回复 BUSY/QUEUE_FULL。
+   - 如果 slot 忙或 queue 满，均立即回复现有 `BUSY`，第一轮不扩展 CAN result code。
 4. spinal 的 `service_completion_`、`callback_waiting` 等同步等待字段不需要原样移植到 neuron。
+5. service 不建立额外优先级 queue：urgent torque-off 优先级最高，其余 control/service instruction 保持同一 FIFO 顺序；all-or-none control batch 一旦入队，service 不会插入其中。
 
 ### 2.4 Mode-aware goal write
 
@@ -62,7 +91,7 @@
 | CbP | 使用 position 和 current magnitude/limit | 先 Goal Position，再 Goal Current |
 | EM | 不发送 goal | 无 |
 
-高频路径推荐和 spinal 一样只入队一个逻辑事件 `INST_SET_GOAL_STATE`。不同 mode 的寄存器选择应由 `cmdBulkWriteGoalStates()` 完成，而不是把每个 mode 拆成独立 UART event。
+高频路径采用一个统一逻辑事件：保留 neuron 现有 `INST_SET_GOAL_COMMAND` 名称，其语义等价于 spinal 的 `INST_SET_GOAL_STATE`。不同 mode 的寄存器选择继续由 neuron 现有 `cmdBulkWriteGoalStates()` 完成。
 
 原因是一个 neuron 可能同时连接不同 mode 的 servo。Bulk Write 可以在一个 packet 中混合写不同 ID、不同地址；如果按 mode 拆 event，会增加 packet 数量并降低 5 ms 周期的余量。
 
@@ -88,13 +117,13 @@ CbP 必须保持两个 packet，因为 Dynamixel Protocol 2.0 Bulk Write 中同�
 
 ## 3. 核心结论：能否几乎复用 spinal
 
-可以。Dynamixel driver 的大部分调度和状态机都应直接参考 spinal，而不是在 neuron 中重新设计另一套框架。
+可以，但不是复制整个 driver。应迁移 spinal 的 instruction/scheduler/pending/fresh 调度骨架，并复用 neuron 已有的底层读写、模式控制和硬件特有实现。
 
 ### 3.1 可以直接参考或移植的部分
 
 - `ServoInstruction`
 - `PendingTransaction`
-- `RingBufferDx<ServoInstruction, 64>`
+- `ServoInstruction` 作为 G4 现有 `RingBuffer<T, 64>` 的 payload
 - `enqueueInstruction()`
 - `enqueueInstructionBatch()`
 - `popInstruction()`
@@ -102,13 +131,13 @@ CbP 必须保持两个 packet，因为 Dynamixel Protocol 2.0 Bulk Write 中同�
 - `processInstructionQueue()`
 - `startPendingTransaction()`
 - `completePendingTransaction()` 的总体状态机
-- `activeServoMask()` 和 bus group mask
+- 高频 control-cycle batch 的 mask/排序语义
 - 高频 control-cycle batch 的生成顺序
 - temperature、moving、hardware error 的低频调度
-- `INST_SET_GOAL_STATE` 和 mode-aware Bulk Write
-- target watchdog
-- UART 错误恢复和 deadline 比较方法
+- 统一 goal-state instruction 的 dispatch 语义
 - 最后一组 CVP 完成后产生 fresh-state 标志的机制
+
+以下功能不是迁移函数体，而是复用 neuron 现有实现：`activeServoMask()`、`goalServoMask()`、`configuredServoMasks()`、mode-aware Bulk Write、target watchdog、UART parser/recovery 和 deadline helper。
 
 ### 3.2 不能原样复制的部分
 
@@ -178,15 +207,9 @@ torque-off 不依赖普通 FIFO，而是使用 atomic pending mask 并在普通�
 
 ### 4.4 Neuron 的采用方案
 
-建议 neuron 复用同样的 all-or-none batch 和 drop-current-cycle 策略，并补充以下计数器：
+Neuron 复用 all-or-none batch 和 drop-current-cycle 语义，但保留现有 `RingBuffer<T, 64>`。普通 queue 只允许 `servoTask` 访问：CAN RX 发布 target/config mailbox，`servoTask` 再生成普通 instruction，因此第一轮不需要 `queue_mutex_`。
 
-```cpp
-uint32_t control_cycle_enqueue_fail_count_;
-uint32_t periodic_event_drop_count_;
-uint16_t instruction_queue_high_watermark_;
-```
-
-CAN target 本身不进入 instruction queue，因此 CAN burst 不会直接把队列塞满。队列只保存 UART transaction/service event。
+CAN target 本身不进入 instruction queue；torque-off 继续走 atomic urgent mask。Queue full 时丢弃当前 periodic batch并推进 deadline，不补排过期周期。queue high-watermark、drop counter 等 instrumentation 延后到 parity 验证之后。
 
 ## 5. 建议的 ServoInstruction 结构
 
@@ -203,7 +226,7 @@ struct ServoInstruction
 };
 ```
 
-暂时不要把 target 数值复制进每个 instruction。position/velocity/current 使用独立的 latest target snapshot；执行 `INST_SET_GOAL_STATE` 时读取该 control cycle 已冻结的 snapshot。
+暂时不要把 target 数值复制进每个 instruction。CAN pending frame 只在有新 frame 时一次性应用到 active `ServoData`；每次执行 neuron 现有 `INST_SET_GOAL_COMMAND`（语义等价于 spinal 的 `INST_SET_GOAL_STATE`）时，都读取当时最新的完整 active target。与 spinal 一致，第一轮不保证某个排队的 goal instruction 与入队时的 target generation 精确绑定。
 
 如果后续需要对 CAN sequence 和实际写入值做精确关联，可增加：
 
@@ -214,19 +237,20 @@ uint32_t target_generation;
 
 但不应在第一轮重构中扩大状态机复杂度。
 
-## 6. 推荐的 1 ms update 顺序
+## 6. 移植后的 1 ms update 顺序
 
-`DynamixelSerial::update()` 每 1 ms 调用一次，顺序建议与 spinal 接近：
+`DynamixelSerial::update()` 不另造调度器，而是近似原样移植 spinal 的主顺序：
 
 ```text
 1. 更新 target watchdog
-2. 如果存在 pending UART transaction，尝试完成它
-3. 处理紧急 torque-off pending mask
-4. 应用一份完整的 latest CAN target snapshot
+2. 如果存在 pending UART transaction，完成并结算 fresh mask
+3. 运行 neuron 现有 hardware-error 安全检查，必要时原子置位 urgent torque-off
+4. 处理一个紧急 torque-off；若处理了则立即返回
 5. schedulePeriodicCommands()
-6. processInstructionQueue()，最多启动一个新的 UART transaction
-7. 返回本 tick 是否产生完整 fresh feedback
+6. processInstructionQueue()，最多启动一个新的有效逻辑 instruction
 ```
+
+Hardware-error 检查是 spinal 没有的 neuron 安全钩子：它只读取已提交的 error state 并置位 urgent-off mask，不执行额外 read transaction。其余 Neuron/CAN 适配不增加 driver 主循环步骤：CAN callback 只原子发布 pending target snapshot；当 5 ms high-rate deadline 到期时，`schedulePeriodicCommands()` 在 control batch 入队前应用该 snapshot；config mailbox 由 `Servo::update()` 转成 service instruction；fresh measurement 在 driver update 后由 `Servo::update()` 提取。
 
 不能再使用 neuron 当前的：
 
@@ -236,7 +260,7 @@ while (popInstruction(...)) {
 }
 ```
 
-应改成 spinal 的语义：跳过无效 instruction 后，每次 `update()` 最多执行一个有效 UART 操作。
+应改成 spinal 的语义：跳过无效 instruction 后，每次 `update()` 最多执行一个有效逻辑 instruction。CbP 的 Position、Current 两个 packet 仍属于同一个逻辑 instruction。
 
 ## 7. 200 Hz control-cycle batch
 
@@ -246,7 +270,7 @@ while (popInstruction(...)) {
 
 ```text
 INST_GET_PRESENT_CVP(active_mask, feedback_cycle_mask=active_mask)
-INST_SET_GOAL_STATE(goal_mask)
+INST_SET_GOAL_COMMAND(goal_mask)
 ```
 
 TTL/RS485 mixed bus：
@@ -254,13 +278,13 @@ TTL/RS485 mixed bus：
 ```text
 INST_GET_PRESENT_CVP(rs485_feedback_mask, feedback_cycle_mask=0)
 INST_GET_PRESENT_CVP(ttl_feedback_mask, feedback_cycle_mask=full_feedback_mask)
-INST_SET_GOAL_STATE(rs485_goal_mask)
-INST_SET_GOAL_STATE(ttl_goal_mask)
+INST_SET_GOAL_COMMAND(rs485_goal_mask)
+INST_SET_GOAL_COMMAND(ttl_goal_mask)
 ```
 
 如果只有 RS485 feedback，RS485 read 自己就是 final feedback group；TTL-only 同理。
 
-如果上一周期尚未处理完成，不要继续积累新的周期。可以用 queue 中是否已有 high-rate batch，或显式 `control_cycle_pending_` 标志判断，并记录 missed cycle。
+Spinal parity 不额外引入 `control_cycle_pending_`：到期 batch 可以继续排入普通 queue，直到容量不足时整批丢弃。禁止 batch 重叠属于后续 overload hardening，不混入第一轮。
 
 ## 8. Mode-aware Goal State 是否可以直接参考 spinal
 
@@ -305,7 +329,61 @@ spinal 收到 read instruction 时：
 
 这个设计将“发送请求”和“开始接收处理”分到了两个 servoTask tick。
 
-### 9.2 仍然存在的问题
+### 9.2 Neuron 的具体代码变化
+
+当前 neuron 的 `executeFastSyncRead()` 在同一次调用中连续执行：
+
+```cpp
+cmdFastSyncRead(address, byte_size, servo_mask);
+return readFastSyncStatusPacket(command, servo_mask);
+```
+
+移植后，周期 read instruction 改为与 spinal 相同的行为：
+
+```text
+tick N:
+  cmdFastSyncRead(...)
+  TX 成功 -> pending = {instruction, fast_sync=true, deadline=now+5ms}
+  return
+
+tick N+1:
+  completePendingTransaction()
+  使用 pending 中原来的绝对 deadline 解析 response
+  清除 pending，更新 feedback mask/fresh
+  继续 urgent-off -> schedule -> process 下一条 instruction
+```
+
+只做下列 neuron 薄适配，不重写底层：
+
+- 使用 neuron 现有 result enum、instruction 名称和 `cmdFastSyncRead(address, length, mask)`。
+- 为 neuron 现有 `readFastSyncStatusPacket()` 增加绝对 `deadline_ms` 参数，不能在下一 tick 重新计算 `now + 5 ms`。
+- 保留 neuron 现有 DMA ring、CRC/parser 和 external encoder/pulley 数据提交逻辑。
+- 删除 `finishReadTransaction()`：Fast Sync 和普通 Status parser 只返回 result，不在 parser 内恢复 DMA/UART。
+- 与 spinal 一致，`completePendingTransaction()` 复制 pending、使用保存的 deadline 调用 parser、清除 pending，然后对任意非 OK 结果只调用一次 `recoverRx()`。
+- 初始化/config/legacy 的同步 read 统一通过 `executeBlockingRead()` 走同一 pending-completion 收口，不再让每个 parser return 点决定是否恢复。
+- TX 失败恢复也只保留一个责任方。第一轮可保留 neuron 现有 `transmitInstructionPacket()` 的恢复，不再在 `lastTransmitResult()` 重复恢复。
+- 周期 scheduler 不再调用同步 `executeFastSyncRead()`；同步 helper 可保留给初始化/config/legacy 路径，避免扩大改动。
+
+CVP read 失败时，后续 goal instruction 仍在 FIFO 中并继续执行，与 spinal 相同；MIT 使用上次已保存的 CVP，该轮不产生 fresh measurement。
+
+### 9.3 DMA ring 和 parser 对比
+
+两边的总体架构实际上相同：512-byte circular RX DMA、`rd_ptr_`、通过 DMA remaining counter 计算 write pointer、`readUntil()` 按绝对 deadline 忙轮询、Protocol 2.0 CRC，以及普通 Status packet 的 byte unstuffing。Fast Sync combined Status packet 两边都不做 unstuff。
+
+必须保留的差异：
+
+| 项目 | spinal | neuron 移植选择 |
+| --- | --- | --- |
+| RX buffer | H7 按 board 放入特定 linker section，处理 DMA/cache 布局 | G4 保留现有 class member buffer，不复制 H7 linker section |
+| UART 方向 | `direct_ttl_mode_` 下等待 TC 并切换 half-duplex TX/RX | G4 USART2 保留现有 TX_RX 配置；`ttl_rs485_mixed_` 只用于 servo 分组 |
+| Fast Sync 校验/提交 | 边解析边更新 servo，后续 ID/error 失败可能已部分提交 | 保留 neuron “整包长度/CRC/ID/error 全部成功后再更新”，避免半新半旧 |
+| 数据提交 | spinal ServoData/external-encoder 分支 | 保留 `updatePresentPosition()`、pulley skip、delta velocity、`pvc_update_count_` 和本地 error bits |
+| 普通 Status command | spinal 所需的较小集合 | 保留 neuron 的 CVP/current/model-number/hardware-error 等额外分支 |
+| HAL 差异 | H7/F7 flag 和 DMA 寄存器实现 | 保留 G4 的 CNDTR、flag clear、DMA restart/null-check |
+
+因此不应复制 spinal parser 函数体；应只统一它们的函数契约：`parser(command, absolute_deadline, expected_mask) -> result`，以及由 pending completion 统一管理 transaction 结束和错误恢复。
+
+### 9.4 仍然存在的问题
 
 spinal 的 `readUntil()` 在 DMA buffer 没有新数据时使用 busy loop：
 
@@ -323,7 +401,7 @@ while (true) {
 - 最坏情况下会占用接近 5 ms，spinal 的 `osDelay(1)` loop 并不保证故障时仍保持严格 1 ms。
 - spinal servoTask 是 Realtime priority，因此 busy-wait 还可能增加其他同优先级/低优先级 task 的调度压力。
 
-### 9.3 Neuron 应如何处理
+### 9.5 Neuron 应如何处理
 
 有两个实施层级：
 
@@ -383,25 +461,35 @@ Fast Sync Read 的期望 packet 长度可以由 `servo_mask` 和寄存器长度�
 
 ```cpp
 ServoMask feedback_received_mask_;
-bool feedback_fresh_;
+volatile bool feedback_fresh_;       // 持久到 CAN publish 成功
+volatile bool feedback_cycle_event_; // 单次 servoTask -> canTx 唤醒事件
 ```
 
 最后一组 CVP 成功后：
 
 ```cpp
-feedback_fresh_ =
-  (feedback_received_mask_ & expected_mask) == expected_mask;
+if ((feedback_received_mask_ & expected_mask) == expected_mask) {
+  atomicStore(&feedback_fresh_, true);
+  atomicStore(&feedback_cycle_event_, true);
+}
 ```
+
+不完整或失败的后续 CVP cycle 只清空当轮 `feedback_received_mask_`，不得把尚未发送的 `feedback_fresh_` 改回 false。`feedback_cycle_event_` 可复用/重命名现有 one-shot `target_cycle_complete_`，只用于让 `Servo::update()` 每个完整 cycle 额外唤醒一次 canTxTask；它不是 publish latch。
 
 随后：
 
-1. `Servo::update()` 返回/提取 `feedback_fresh_`。
-2. `servoTaskCallback()` release `canTxSemHandle`。
-3. `canTxTask` 调用 `servo_.sendData()`。
-4. `sendData()` 继续使用现有 `servo_feedback_frequency_hz_` 做 downsample。
-5. 每个 servo 继续用 `pvc_update_count_` 生成 `SERVO_STATE_PVC_FRESH`。
+1. fresh 是 latched state，必须保留到真正发送 servo feedback 为止；不能因 feedback frequency downsample 本次未到期就清除。
+2. `Servo::update()` 返回/提取“产生了 fresh measurement”事件，`servoTaskCallback()` 可额外 release `canTxSemHandle`。
+3. `canTxTask` 保持原有通用唤醒节拍，因为同一 task 还负责 IMU/motor feedback；Dynamixel 失败不得使它们停发。
+4. `Servo::sendData()` 仅在 fresh latch 存在且 `servo_feedback_frequency_hz_` downsample 到期时原子 take 该 latch，再尝试发送 servo feedback。
+5. 所有启用的 servo-state frame 都成功加入 FDCAN TX FIFO 时，本次 latch 消费完成；任一 `sendMessage()` 失败则重新置位 latch，在下一个符合 downsample 的时机重试。
+6. 每个 servo 继续用 `pvc_update_count_` 生成 `SERVO_STATE_PVC_FRESH`；`last_sent_pvc_update_count_[i]` 只在该 servo frame 成功入队后更新。
 
-当前 `CANDeviceManager::userReceiveMessagesCallback()` 在收到 target 后立即 release `canTxSemHandle`。该逻辑应删除，否则 canTxTask 的优先级高于 servoTask，反馈通常会在新 CVP 完成前发送，得到上一周期数据。
+原子 take/restore 避免丢事件：如果 canTxTask 发送期间 servoTask 又完成了新 CVP，新 completion 会再次将 latch 置 true；当前发送成功不会把这个新事件清除。多个 200 Hz CVP completion 可合并为一个未发送 latch，不建立 feedback queue。
+
+当前 target callback 的 release 不再被解释为“新 servo CVP 已就绪”。可保留它作为 IMU/motor 的通用 CAN TX 唤醒，但 `Servo::sendData()` 必须用 fresh latch 阻止发送陈旧 servo 数据。
+
+Spinal parity 阶段不增加独立 feedback snapshot/double buffer。ServoTask 优先级对齐 spinal 为 Realtime，Fast Sync parser 完整验证后才更新 `ServoData` 并置 fresh latch。若后续实测发现多个 CAN servo-state frame 跨越下一次 CVP commit，再在 hardening 阶段增加反馈快照。
 
 如果需要区分：
 
@@ -416,21 +504,19 @@ neuron 的 CAN RX task 是 Realtime priority，servoTask 当前是 Normal priori
 
 即使 Cortex-M4 对齐的 32-bit 写入通常是原子的，一帧中的 position、velocity、current 和 valid flags 仍可能来自不同 CAN generation。
 
-推荐使用双缓冲或短 critical section：
+第一轮使用一个 board-level pending frame，不为每个 instruction 复制 target：
 
 ```cpp
-struct ServoTargetSnapshot
+struct PendingTargetFrame
 {
-  int32_t position;
-  int32_t velocity;
-  int16_t current;
-  uint8_t valid_flags;
+  ServoTarget targets[MAX_SERVO_NUM];
   uint8_t sequence;
   uint32_t receive_tick;
+  bool valid;
 };
 ```
 
-CAN RX 更新 pending snapshot；servoTask 在 control cycle 开始前一次性复制到 active snapshot。critical section 只覆盖内存复制，绝不能覆盖 UART 读写。
+`ServoTarget` 只包含现有 position/velocity/current/torque/valid 字段。CAN RX 先在局部变量中完整解析一帧，再用短 critical section 整体覆盖 pending frame；torque-off 同时独立置位 urgent mask。`schedulePeriodicCommands()` 只在 5 ms high-rate deadline 到期时将最新 pending frame 一次性应用到现有 `ServoData`，再生成 control batch。CAN RX 不再直接改写正在用于 Bulk Write 的 active goal 字段。
 
 Watchdog 应使用 CAN 实际接收时间，而不是 servoTask 应用 snapshot 的时间。
 
@@ -516,13 +602,15 @@ if (timeReached(now, next_control_tick_)) {
 }
 ```
 
-必须使用 `next += 5`，不能使用 `next = now + 5`。当前周期未完成时，丢弃本次新周期并继续推进 deadline，不做 catch-up burst。
+必须使用 `next += 5`，不能使用 `next = now + 5`。与 spinal 一致，只要 queue 空间足够，即使前一个 batch 尚未完成也可整批入队；只在 all-or-none 容量检查失败时丢弃当前周期。无论入队成功与否都将 deadline 推进到未来，不做 catch-up burst。
 
 后续每帧 CAN target 仅更新 latest target 和 watchdog 时间，不重置 `next_control_tick_`。target sequence 继续用于诊断丢帧和在 feedback 中回显，不参与复杂的相位计算。
 
 单帧或短时 CAN 丢包时，本地 5 ms loop 继续运行；超过 watchdog 后 DV/DC/MIT 写安全零输出。如果 CAN 长时间中断后希望重新与 spinal 错峰，可在 bus 空闲时同时清除 `control_scheduler_started_` 和 `phase_start_pending_`，由下一帧 target 重新执行上述一次性启动。
 
-`WAIT_PHASE_SYNC` 期间仍可以处理 config、torque-off 和初始化，但不启动周期性 goal write。
+`WAIT_PHASE_SYNC` 期间仍保留 neuron 现有监控行为：每 5 ms 排入 CVP-only read，并继续 temperature、moving、hardware-error 低频读取，但不启动周期性 goal write。这些未锁相的 CVP-only read 只更新内部状态，`feedback_cycle_mask=0`，不产生 CAN fresh-feedback 唤醒。首帧 target 到达后，在 pending transaction 和普通 queue 空闲边界切换到锁相的 read -> write control batch。
+
+`setGoalTargets()` 和 200 Hz goal write 必须区分：只有实际收到新 CAN target 时才应用 pending frame、调用等价 target setter 并使用该 frame 的 `receive_tick`。即使没有新 target，本地 scheduler 仍每 5 ms 排入 CVP read 和 `INST_SET_GOAL_COMMAND`，用上一份 active target 继续 200 Hz 闭环。消费后必须清除 pending `valid`，否则重复应用旧 frame 会不断刷新 watchdog，使 DV/DC/MIT 无法正常超时置零。
 
 ### 12.4 Feedback 时序与局限
 
@@ -547,8 +635,9 @@ neuron 的部分 `configure()` 路径会执行 Flash erase/write，其他路径�
 
 - 推荐定义为：正常 control mode 下 servoTask 维持 1 ms；配置/Flash maintenance 期间允许临时超期。
 - config 只允许 torque disabled 时执行现有安全检查。
-- service event 的优先级低于 torque-off，但高低于/高于 control cycle 需要明确。
-- 推荐在完整 control-cycle batch 之间执行一个 service request，不能插入到 CVP read 和对应 goal write 中间。
+- urgent torque-off 优先级最高；service 不设独立优先级 queue，而是由 `servoTask` 追加到与 control event 共用的普通 FIFO。
+- control-cycle batch 以 all-or-none 方式连续入队，因此后到的 service 只能在已入队 batch 之后执行，不会插入 CVP read 和对应 goal write 中间。
+- 若 config slot 忙或 service instruction 无法入队，统一回复现有 `BUSY`，不增加 CAN 协议码。
 - Flash erase/write 若必须做到完全不影响 control loop，应进一步拆到独立 maintenance task；这不属于第一轮 spinal parity 移植范围。
 
 ## 14. 具体修改清单
@@ -557,15 +646,18 @@ neuron 的部分 `configure()` 路径会执行 Flash erase/write，其他路径�
 
 - 增加 `ServoInstruction`。
 - 增加 `PendingTransaction`。
+- 增加单个 board-level `PendingTargetFrame`，target 数值不进入 instruction queue。
 - 将 instruction buffer 类型改为 `RingBuffer<ServoInstruction, 64>`。
-- 增加 `queue_mutex_`；若所有 periodic event 只由 servoTask 产生，仍可为 service producer 保留 mutex。
+- 普通 instruction queue 保持 servoTask 单生产者，不增加 `queue_mutex_`。
 - 增加 `feedback_received_mask_` 和 fresh flag。
-- 增加 queue/drop/timeout instrumentation counters。
+- 使用持久 `feedback_fresh_` 加 one-shot `feedback_cycle_event_`（可复用现有 complete flag）分离“唤醒 canTx”与“尚未成功 publish”。
+- queue/drop/timeout instrumentation counters 延后到 parity 验证后的加固阶段。
 - 增加 `phase_start_pending_`、`phase_start_tick_`、`control_scheduler_started_` 和 `next_control_tick_`。
 - 增加 `schedulePeriodicCommands()`、`processInstructionQueue()`。
 - 增加仅提交 phase-start flag 的 `notifyTargetFrame()` 或等价 API；该 API 不执行 UART。
 - 增加 start/complete pending transaction API。
-- 删除或逐步废弃 `target_cycle_pending_`、`target_cycle_complete_`。
+- 删除 `target_cycle_pending_`；`target_cycle_complete_` 可重命名并收窄为 one-shot `feedback_cycle_event_`。
+- 新 scheduler、pending 和 queue-dispatch 语义只在 `STM32G4` 路径启用；F1/F4 保持旧 update/queue-drain 行为。
 
 ### 14.2 `neuronlib/Servo/Dynamixel/dynamixel_serial.cpp`
 
@@ -573,18 +665,20 @@ neuron 的部分 `configure()` 路径会执行 Flash erase/write，其他路径�
 - 将 G4 的 direct target-cycle block 替换成内部 5 ms scheduler。
 - scheduler 初始处于 `WAIT_PHASE_SYNC`，由首帧 CAN goal 锁定 epoch，丢包时进入本地 holdover。
 - 启动后的 CAN goal 只更新 latest target 和 watchdog，不得每帧直接重启 cycle。
-- 将 instruction queue 从一次全部 drain 改为每 tick 一个有效 bus operation。
+- 将 instruction queue 从一次全部 drain 改为每 tick 一个有效逻辑 instruction。
 - 参考 spinal 处理 mixed TTL/RS485 groups。
-- 参考 spinal 移植 mode-aware `INST_SET_GOAL_STATE`。
+- 保留 neuron 的 mode-aware `INST_SET_GOAL_COMMAND` dispatch 和 `cmdBulkWriteGoalStates()` 实现。
 - 保留 neuron 的 CbP Position -> Current 顺序。
 - 第一轮可以复用 spinal pending read；第二轮将 RX completion 改为非阻塞。
 - 保留 neuron external encoder、pulley skip、watchdog 和 CAN-specific state。
+- pending read 完成后继续运行 neuron 现有 hardware-error/force-off 判定，并在同一 update 中进入 urgent-off 路径。
+- 公用 parser 可增加 absolute-deadline overload，但必须保持非 G4 同步 wrapper 的原有运行行为。
 
 ### 14.3 `neuronlib/Servo/servo.h/.cpp`
 
-- 增加 CAN target pending/active snapshot 或等价同步机制。
+- 增加单个 board-level pending target frame；CAN RX 不直接修改 active `ServoData`。
 - CAN target callback 更新 target，同时提交独立 phase-sync event，但不直接触发 Dynamixel cycle。
-- 使用 target sequence 识别 duplicate/drop/restart，并继续在 feedback 中回显已应用的 target generation。
+- Parity/CAN adapter 阶段保留当前 received sequence 回显；精确 applied target sequence 在后续加固阶段实现。
 - 将 config slot 接入 `INST_SERVICE_REQUEST`。
 - config 完成后异步调用 `sendConfigResponse()`。
 - `Servo::update()` 返回是否出现一组新的完整 feedback。
@@ -592,36 +686,41 @@ neuron 的部分 `configure()` 路径会执行 Flash erase/write，其他路径�
 
 ### 14.4 `neuron_g4/Core/Src/main.c`
 
-- `servoTaskCallback()` 使用 `vTaskDelayUntil()` 保持绝对 1 ms tick。
-- servo update 产生 fresh feedback 时 release `canTxSemHandle`。
-- 删除 CAN target receive callback 中立即 release `canTxSemHandle` 的逻辑。
-- 第一轮保持 servoTask priority 为 Normal。
-- 如果最终调整 task priority，同步更新 `neuron_g4.ioc`，避免 CubeMX 再生成时覆盖。
+- Spinal parity 阶段将 `servoTask` 设为 Realtime，并保持 `servo_.update(); osDelay(1);`。
+- `servo_.update()` 产生 fresh measurement 时可以额外唤醒 `canTxTask`，但不能删除 IMU/motor 依赖的通用 CAN TX 唤醒节拍。
+- `Servo::sendData()` 只在 fresh measurement 可用时发送新的 servo feedback，避免通用唤醒发送陈旧 servo 数据。
+- `vTaskDelayUntil()` 及其 FreeRTOS 配置变更延后到 parity 后的 task-timing 加固；任何 priority 修改都同步更新 `neuron_g4.ioc`。
 
 ## 15. 推荐实施阶段
 
-### 阶段 A：Spinal parity
+### 阶段 A：Spinal driver parity（仅 G4）
 
-- 移植 `ServoInstruction`、queue mutex、batch enqueue、scheduler 和 process queue。
-- 使用 spinal 当前 pending transaction 行为。
-- 保持 target 数据结构暂时不变，但将 CAN-triggered cycle 拆成“首帧锁定相位 + 本地 5 ms scheduler”。
-- 确认 200 Hz read/write 和各 mode 正常。
+- 将 G4 queue payload 改为 `ServoInstruction`，保留现有 `RingBuffer<T, 64>`。
+- 移植 all-or-none batch、`PendingTransaction`、绝对 deadline scheduler、single-instruction dispatch 和 feedback mask。
+- 保留 spinal 当前 pending completion 行为，包括故障时可能 busy-wait 到 response deadline。
+- 复用 neuron 现有 mask helpers、watchdog、parser/recovery、Bulk Write、CbP 顺序和 encoder/pulley 逻辑。
 
-### 阶段 B：CAN 适配
+### 阶段 B：Neuron/CAN 薄适配
 
-- service request 改为异步 CAN response。
-- target 改为 latest snapshot。
-- 增加 target sequence 诊断和丢包时的本地 holdover。
-- feedback 改为 CVP-complete 驱动 CAN TX。
+- CAN target 不再触发 UART cycle；首帧只锁定 phase，本地 scheduler 后续 holdover。
+- 用完整 target snapshot 在 control-cycle 边界提交 latest-wins 数据，torque-off 仍走 urgent mask。
+- config mailbox 由 `servoTask` 转成 `INST_SERVICE_REQUEST`，完成后异步回复 CAN；不移植 spinal 同步 semaphore。
+- fresh measurement 接入现有 CAN feedback，同时保留 IMU/motor 的通用 TX cadence。
+- 第一轮不增加 feedback double buffer；若实测发现跨 CVP commit 的多帧不一致，再在 hardening 阶段处理。
+- servoTask 对齐 spinal H7/H7_v2：Realtime priority、`osDelay(1)`。
 
-### 阶段 C：实时性加固
+### 阶段 C：Parity 验证
 
-- `osDelay(1)` 改为 `vTaskDelayUntil()`。
-- UART RX 改为 nonblocking pending transaction。
-- 增加 deadline miss、queue high watermark、UART timeout 等计数器。
-- 根据测量决定是否使用 UART TX DMA 或调整 task priority。
+- 验证 200 Hz read -> write 顺序、mixed bus、全部可达 mode、watchdog、低频事件、config 和 feedback fresh。
+- 第一轮不宣称故障态严格 1 ms；先确认行为与 spinal 一致并量测正常路径。
 
-分阶段的原因是可以先验证与 spinal 行为一致，再把故障情况下的 busy-wait 替换掉；不要同时重写调度、UART parser、CAN protocol 和 service path。
+### 阶段 D：独立实时性加固
+
+- 将 UART RX completion 改为真正 nonblocking，并实现已确认的 urgent torque-off pending abort。
+- 评估并单独引入 `vTaskDelayUntil()`、applied sequence、长断流 relock 和 instrumentation。
+- 根据量测决定是否需要 TX DMA、CAN TX 调度或其他 priority 调整。
+
+分阶段的原因是先建立可比较的 spinal parity 基线，再逐项强化实时性；不要同时重写调度、UART parser、CAN protocol 和 service path。
 
 ## 16. 验收标准
 
@@ -638,7 +737,7 @@ neuron 的部分 `configure()` 路径会执行 Flash erase/write，其他路径�
 - CbP 每次都是 Goal Position packet 在 Goal Current packet 之前。
 - DV/DC/MIT target timeout 后发送安全零输出。
 - torque-off 不会被普通 queue backlog 延迟。
-- config request 能异步回复成功、失败、BUSY 和 QUEUE_FULL。
+- config request 能异步回复成功、失败和现有 `BUSY`。
 
 ### 16.2 Queue
 
@@ -699,17 +798,8 @@ applied_target_generation
 - `robots/dragon/config/quad/v1_5_202601/RLServo.yaml`
 - `robots/dragon/launch/servo_response.launch`
 
-## 18. 仍需确认的设计问题
+## 18. 实机验证项
 
-1. “稳定 1 ms”是否要求在 Dynamixel 掉线和 Flash config 期间也成立？
-   - 如果是，必须完成 nonblocking RX，并将 Flash maintenance 移出 servoTask。
-2. fresh feedback 应在最后一组 CVP read 后产生，还是要求 goal write 也成功？
-   - 推荐沿用 spinal：CVP read 完成即表示 fresh measurement；另设 control-write status。
-3. service request 是否允许延迟一个或多个 control cycle？
-   - 推荐不打断已入队的 read -> write batch，在 batch 边界执行。
-4. mixed bus 和四 servo 的最坏 UART 时间是否能稳定小于 5 ms？
-   - 必须用逻辑分析仪或 cycle counter 实测。
-5. 第一轮是否先接受 spinal 的 busy-wait timeout 行为？
-   - 推荐先做 parity，再单独提交 nonblocking RX，便于定位回归。
-6. 1 ms goal 起始错峰在实机上是否已足以避免 CAN TX queue 积压？
-   - 先量测；若不足，由 spinal 引入显式 feedback window/token，不在 neuron 内叠加固定 delay。
+1. mixed bus 和四 servo 的最坏 UART 时间是否能稳定小于 5 ms，必须用逻辑分析仪或 cycle counter 实测。
+2. 1 ms goal 起始错峰是否足以避免 CAN TX queue 积压；若不足，由 spinal 引入显式 feedback window/token，不在 neuron 内叠加固定 delay。
+3. 多 servo CAN feedback 发送是否会跨越下一次 CVP commit；只有实测确认存在不一致时才增加 feedback snapshot。

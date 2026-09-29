@@ -1,0 +1,76 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Run after a DRAGON bringup that publishes /$(arg robot_ns)/joint_states
+       and accepts /$(arg robot_ns)/gimbals_ctrl. -->
+  <arg name="robot_id" default="" />
+  <arg name="robot_ns" default="end_leg$(arg robot_id)" />
+
+  <!-- Signal set: step, sweep, or multi. -->
+  <arg name="signal_type" default="step" />
+  <arg name="control_freq" default="200" />
+  <arg name="duration" default="120" />
+  <arg name="position_limit" default="1.5" /> <!-- Roll: 0.30, Pitch 1.57 -->
+  <arg name="cmd_period" default="1.0" />
+  <arg name="period_scale" default="50" />
+  <arg name="step_height" default="0.15" />
+
+  <arg name="enable_save" default="true" />
+  <arg name="save_path" default="/home/wentao" />
+  <arg name="file_prefix" default="end_leg_response" />
+
+  <!-- axis_count is only used when axis_names is empty. DRAGON defaults to an
+       explicit 8-axis gimbal command so disabled axes can still hold default. -->
+  <arg name="axis_count" default="3" />
+  <arg name="axis_names" default="[gimbal1, gimbal2, gimbal3]" />
+
+  <!-- enabled_axes presets, ordered as axis_names above:
+       1. pitch only; roll axes are still published at default_position:
+          [false, true, false, true, false, true, false, true]
+       2. roll only; pitch axes are still published at default_position:
+          [true, false, true, false, true, false, true, false]
+       3. roll and pitch both controlled (default):
+          [true, true, true, true, true, true, true, true] -->
+  <arg name="enabled_axes" default="[true, true, true]" />
+  <!-- <arg name="enabled_axes" default="[true, false, true, false, true, false, true, false]" /> -->
+  <arg name="default_position" default="0.0" />
+
+  <!-- Real machine normally uses position commands through gimbals_ctrl.
+       For effort-controller simulation, set effort_ctrl:=true; topics/gains are
+       auto-loaded from /$(arg robot_ns)/servo_controller/gimbals when available. -->
+  <arg name="effort_ctrl" default="false" />
+  <arg name="kp" default="0.45" />
+  <arg name="kd" default="0.008" />
+  <arg name="effort_limit" default="[]" />
+  <arg name="effort_topics" default="[]" />
+
+  <include file="$(find motor_test)/launch/servo_response.launch">
+    <arg name="robot_ns" value="$(arg robot_ns)" />
+    <arg name="state_topic" value="joint_states" />
+    <arg name="command_topic" value="gimbals_ctrl" />
+    <arg name="debug_topic" value="gimbals_ctrl_debug" />
+    <arg name="servo_group" value="gimbals" />
+
+    <arg name="axis_count" value="$(arg axis_count)" />
+    <arg name="axis_names" value="$(arg axis_names)" />
+    <arg name="enabled_axes" value="$(arg enabled_axes)" />
+    <arg name="default_position" value="$(arg default_position)" />
+
+    <arg name="signal_type" value="$(arg signal_type)" />
+    <arg name="control_freq" value="$(arg control_freq)" />
+    <arg name="duration" value="$(arg duration)" />
+    <arg name="position_limit" value="$(arg position_limit)" />
+    <arg name="cmd_period" value="$(arg cmd_period)" />
+    <arg name="period_scale" value="$(arg period_scale)" />
+    <arg name="step_height" value="$(arg step_height)" />
+
+    <arg name="enable_save" value="$(arg enable_save)" />
+    <arg name="save_path" value="$(arg save_path)" />
+    <arg name="file_prefix" value="$(arg file_prefix)" />
+
+    <arg name="effort_ctrl" value="$(arg effort_ctrl)" />
+    <arg name="kp" value="$(arg kp)" />
+    <arg name="kd" value="$(arg kd)" />
+    <arg name="effort_limit" value="$(arg effort_limit)" />
+    <arg name="effort_topics" value="$(arg effort_topics)" />
+  </include>
+</launch>
