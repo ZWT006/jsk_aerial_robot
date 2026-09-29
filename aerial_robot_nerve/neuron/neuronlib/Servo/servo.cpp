@@ -293,6 +293,7 @@ void Servo::sendData()
 
     if (sendMessage(CAN::MESSAGEID_SEND_SERVO_LIST[i], m_slave_id, CAN::CANFD_SERVO_STATE_DLC, data, 1))
     {
+      __atomic_add_fetch(&feedback_count_, 1, __ATOMIC_RELAXED);
       if (pvc_fresh)
       {
         last_sent_pvc_update_count_[i] = servo.pvc_update_count_;
@@ -362,6 +363,7 @@ void Servo::receiveDataCallback(uint8_t message_id, uint32_t DLC,
     return;
   }
 
+  __atomic_add_fetch(&target_count_, 1, __ATOMIC_RELAXED);
   last_target_sequence_ = data[1];
   const uint8_t valid_mask = data[2];
   std::array<DynamixelSerial::ServoTarget, MAX_SERVO_NUM> targets{};
@@ -430,4 +432,14 @@ void Servo::receiveDataCallback(uint8_t message_id, uint32_t DLC,
     }
   }
 #endif
+}
+
+uint32_t Servo::takeTargetCount()
+{
+  return __atomic_exchange_n(&target_count_, 0, __ATOMIC_ACQ_REL);
+}
+
+uint32_t Servo::takeFeedbackCount()
+{
+  return __atomic_exchange_n(&feedback_count_, 0, __ATOMIC_ACQ_REL);
 }

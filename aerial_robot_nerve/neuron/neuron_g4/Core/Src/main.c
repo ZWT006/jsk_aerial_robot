@@ -74,6 +74,7 @@ osMailQId canMsgMailHandle;
 IMU imu_;
 Motor motor_;
 Servo servo_;
+Initializer* initializer_ = nullptr;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -204,7 +205,8 @@ int main(void)
   imu_ = IMU(slave_id);
   servo_ = Servo(slave_id);
 
-  Initializer initializer(slave_id, servo_, imu_);
+  Initializer initializer(slave_id, servo_, imu_, motor_);
+  initializer_ = &initializer;
 
   imu_.init(&hspi1);
   motor_.init(&htim1);
@@ -845,6 +847,7 @@ void coreTaskCallback(void const * argument)
     osSemaphoreWait(coreTaskSemHandle, osWaitForever);
 
     CANDeviceManager::tick(1);
+    initializer_->sendData();
     motor_.update();
     imu_.update();
   }

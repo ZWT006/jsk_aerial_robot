@@ -7,10 +7,61 @@
 
 #include "initializer.h"
 
+namespace
+{
+void writeUint16(uint8_t* data, uint16_t value)
+{
+  data[0] = value & 0xFF;
+  data[1] = (value >> 8) & 0xFF;
+}
+
+void writeUint32(uint8_t* data, uint32_t value)
+{
+  data[0] = value & 0xFF;
+  data[1] = (value >> 8) & 0xFF;
+  data[2] = (value >> 16) & 0xFF;
+  data[3] = (value >> 24) & 0xFF;
+}
+
+uint16_t clampCount(uint32_t value, uint16_t limit = 0xFFFF)
+{
+  return value > limit ? limit : static_cast<uint16_t>(value);
+}
+}
+
 
 void Initializer::sendData()
 {
-	return;
+#ifdef STM32G4
+  const uint32_t now = HAL_GetTick();
+  if (now - board_state_last_send_tick_ < 1000) return;
+  board_state_last_send_tick_ = now;
+
+  uint8_t data[CAN::CANFD_BOARD_STATE_DLC] = {};
+  const uint8_t servo_count = std::min<unsigned int>(
+    CAN::CANFD_MAX_SERVO_NUM, servo_.servo_handler_.getServoNum());
+  data[0] = CAN::CANFD_PROTOCOL_VERSION;
+  data[1] = board_state_sequence_++;
+  data[2] = servo_count;
+  writeUint32(data + 4, now);
+  writeUint16(data + 8, clampCount(servo_.takeTargetCount()));
+  writeUint16(data + 10, clampCount(motor_.takeTargetCount()));
+  writeUint16(data + 12, clampCount(servo_.takeFeedbackCount()));
+  writeUint16(data + 14, clampCount(motor_.takeFeedbackCount()));
+  writeUint32(data + 16, CANDeviceManager::getRxDropCount());
+  writeUint32(data + 20, CAN::getTxDropCount());
+
+  for (uint8_t i = 0; i < servo_count; ++i) {
+    const uint32_t current =
+      servo_.servo_handler_.getServo()[i].pvc_update_count_;
+    const uint32_t count = current - last_servo_control_count_[i];
+    last_servo_control_count_[i] = current;
+    writeUint16(data + 24 + i * 2, clampCount(count, 0x7FFF));
+  }
+
+  sendMessage(CAN::MESSAGEID_SEND_BOARD_STATE, m_slave_id,
+              CAN::CANFD_BOARD_STATE_DLC, data, 1);
+#endif
 }
 
 bool Initializer::sendBoardConfig()

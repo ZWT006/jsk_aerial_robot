@@ -85,6 +85,8 @@ namespace CAN {
   	constexpr uint8_t MESSAGEID_SEND_INITIAL_CONFIG_3 = 4;
 	constexpr uint8_t BOARD_CONFIG_SET_SLAVE_ID = 0;
 	constexpr uint8_t MESSAGEID_SEND_INITIAL_CONFIG_4 = 5;
+	constexpr uint8_t MESSAGEID_SEND_BOARD_STATE = 6;
+	constexpr uint8_t CANFD_BOARD_STATE_DLC = 32;
 	constexpr uint8_t BOARD_CONFIG_SET_IMU_SEND_FLAG = 1;
 	constexpr uint8_t BOARD_CONFIG_SET_SERVO_HOMING_OFFSET = 2;
 	constexpr uint8_t BOARD_CONFIG_SET_SERVO_PID_GAIN = 3;

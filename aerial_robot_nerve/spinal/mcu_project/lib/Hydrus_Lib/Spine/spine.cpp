@@ -34,12 +34,15 @@ namespace Spine
     FlightControl* controller_;
 
     /* ros */
-    constexpr uint32_t SERVO_TORQUE_PUB_INTERVAL = 1000; //[ms]
+    constexpr uint32_t SERVO_TORQUE_PUB_INTERVAL = 1000; // [ms]
+    constexpr uint32_t BOARD_STATES_PUB_INTERVAL = 1000; // [ms]
     spinal::ServoStates servo_state_msg_;
     spinal::ServoTorqueStates servo_torque_state_msg_;
+    spinal::BoardStates board_states_msg_;
     ros::Publisher servo_state_pub_("servo/states", &servo_state_msg_);
     // merge torque_states to states
     ros::Publisher servo_torque_state_pub_("servo/torque_states", &servo_torque_state_msg_);
+    ros::Publisher board_states_pub_("board_states", &board_states_msg_);
 
     // rename following subscriber.
     // taget_states -> target_position
@@ -59,6 +62,7 @@ namespace Spine
     ros::NodeHandle* nh_;
     uint32_t direct_servo_last_pub_time_ = 0;
     uint32_t servo_torque_last_pub_time_ = 0;
+    uint32_t board_states_last_pub_time_ = 0;
     unsigned int can_idle_count_ = 0;
     bool servo_control_flag_ = true;
 
@@ -101,6 +105,36 @@ namespace Spine
       if (direct_servo_ == nullptr || global_index >= direct_servo_num_)
         return false;
       return direct_servo_->setTorqueEnable(global_index, enable);
+    }
+
+    void boardStatesPublish()
+    {
+      const uint32_t now = HAL_GetTick();
+      if (now - board_states_last_pub_time_ < BOARD_STATES_PUB_INTERVAL)
+        return;
+
+      board_states_msg_.stamp = nh_->now();
+      for (uint8_t i = 0; i < slave_num_; ++i) {
+        const Neuron& neuron = neuron_.at(i);
+        const NeuronBoardState& state = neuron.getBoardState();
+        spinal::BoardState& output = board_states_msg_.boards[i];
+        output.slave_id = neuron.getSlaveId();
+        output.sequence = state.sequence;
+        output.uptime_ms = state.uptime_ms;
+        output.state_age_ms = state.received
+          ? now - state.received_tick : 0xFFFFFFFFU;
+        output.servo_target_count = state.servo_target_count;
+        output.thrust_target_count = state.thrust_target_count;
+        output.servo_pvc_count = state.servo_pvc_count;
+        output.rotor_esc_status_count = state.rotor_esc_status_count;
+        output.can_rx_drop_count = state.can_rx_drop_count;
+        output.can_tx_drop_count = state.can_tx_drop_count;
+        for (uint8_t j = 0; j < output.servo_control_count_length; ++j) {
+          output.servo_control_count[j] = state.servo_control_count[j];
+        }
+      }
+      board_states_pub_.publish(&board_states_msg_);
+      board_states_last_pub_time_ = now;
     }
   }
 
@@ -343,6 +377,7 @@ namespace Spine
 
     /* ros */
     nh_ = nh;
+    nh_->advertise(board_states_pub_);
 
     if (servo_num_ > 0)
       {
@@ -382,6 +417,15 @@ namespace Spine
     servo_state_msg_.servos = new spinal::ServoState[servo_num_];
     servo_torque_state_msg_.torque_enable_length = servo_num_;
     servo_torque_state_msg_.torque_enable = new uint8_t[servo_num_];
+    board_states_msg_.boards_length = slave_num_;
+    board_states_msg_.boards = new spinal::BoardState[slave_num_];
+    for (uint8_t i = 0; i < slave_num_; ++i) {
+      spinal::BoardState& state = board_states_msg_.boards[i];
+      state.servo_control_count_length =
+        neuron_.at(i).can_servo_.servo_.size();
+      state.servo_control_count = state.servo_control_count_length == 0
+        ? nullptr : new int16_t[state.servo_control_count_length];
+    }
 
     /* other component */
     imu_weight_.resize(slave_num_ + 1);
@@ -441,6 +485,7 @@ namespace Spine
   {
     /* Publish the unified DirectServo + Neuron state stream. */
     servoPublish();
+    boardStatesPublish();
     if (slave_num_ == 0) return;
 
     /* update the motor PWM command */

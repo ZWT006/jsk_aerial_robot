@@ -20,6 +20,7 @@ class Servo : public CANDevice
 public:
 		Servo():state_sequence_(0), last_target_sequence_(0),
 		        last_sent_pvc_update_count_{}, last_feedback_send_tick_(0),
+		        target_count_(0), feedback_count_(0),
 		        config_request_busy_(false),
 		        config_request_pending_(false), config_response_required_(false),
 		        config_sequence_(0), config_command_(0), config_data_length_(0),
@@ -27,6 +28,7 @@ public:
 		Servo(uint8_t slave_id):CANDevice(CAN::DEVICEID_SERVO, slave_id),
 		        state_sequence_(0), last_target_sequence_(0),
 		        last_sent_pvc_update_count_{}, last_feedback_send_tick_(0),
+		        target_count_(0), feedback_count_(0),
 		        config_request_busy_(false),
 		        config_request_pending_(false), config_response_required_(false),
 		        config_sequence_(0), config_command_(0), config_data_length_(0),
@@ -39,6 +41,8 @@ public:
 		                        uint8_t data_length,
 		                        bool response_required = false,
 		                        uint8_t sequence = 0);
+		uint32_t takeTargetCount();
+		uint32_t takeFeedbackCount();
 
 	bool getConnect() {return connect_;}
 	void setConnect(bool connect) {connect_ = connect;}
@@ -65,6 +69,8 @@ private:
 	std::array<uint32_t, CAN::CANFD_MAX_SERVO_NUM>
 	  last_sent_pvc_update_count_;
 	uint32_t last_feedback_send_tick_;
+	volatile uint32_t target_count_;
+	volatile uint32_t feedback_count_;
 	volatile bool config_request_busy_;
 	volatile bool config_request_pending_;
 	bool config_response_required_;
