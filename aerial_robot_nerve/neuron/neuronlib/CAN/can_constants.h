@@ -30,6 +30,7 @@ namespace CAN {
 	constexpr uint8_t MESSAGEID_SEND_GYRO = 0;
 	constexpr uint8_t MESSAGEID_SEND_ACC = 1;
 	constexpr uint8_t MESSAGEID_SEND_MAG = 2;
+	constexpr uint8_t MESSAGEID_SEND_IMU_STATE = 3;
 	constexpr uint8_t MESSAGEID_RECEIVE_PWM_0_5 = 0;
 	constexpr uint8_t MESSAGEID_RECEIVE_PWM_6_11 = 1;
 	constexpr uint8_t MESSAGEID_RECEIVE_ROTOR_TARGET = 0;
@@ -60,6 +61,7 @@ namespace CAN {
 	constexpr uint8_t SERVO_CONFIG_RESULT_BUSY = 2;
 	constexpr uint8_t CANFD_ROTOR_TARGET_DLC = 32;
 	constexpr uint8_t CANFD_ROTOR_STATE_DLC = 32;
+	constexpr uint8_t CANFD_IMU_STATE_DLC = 24;
 	constexpr uint8_t SERVO_TARGET_POSITION_VALID = 1 << 0;
 	constexpr uint8_t SERVO_TARGET_VELOCITY_VALID = 1 << 1;
 	constexpr uint8_t SERVO_TARGET_CURRENT_VALID = 1 << 2;

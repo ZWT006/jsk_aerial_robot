@@ -122,6 +122,7 @@ void DynamixelSerial::init(UART_HandleTypeDef* huart, I2C_HandleTypeDef* hi2c, o
   feedback_received_mask_ = 0;
   feedback_fresh_ = false;
   feedback_cycle_event_ = false;
+  feedback_cycle_count_ = 0;
   phase_start_pending_ = false;
   phase_start_tick_ = 0;
   control_scheduler_started_ = false;
@@ -367,6 +368,14 @@ bool DynamixelSerial::takeFeedbackFresh()
 void DynamixelSerial::restoreFeedbackFresh()
 {
   __atomic_store_n(&feedback_fresh_, true, __ATOMIC_RELEASE);
+}
+
+uint16_t DynamixelSerial::feedbackCycleDivider() const
+{
+  // Round up so the servo stream never exceeds the requested frequency.
+  constexpr uint16_t control_frequency = 1000U / CONTROL_CYCLE_DU;
+  return (control_frequency + servo_feedback_frequency_hz_ - 1U) /
+         servo_feedback_frequency_hz_;
 }
 #endif
 
@@ -1534,8 +1543,13 @@ void DynamixelSerial::update()
       }
       if (completed.feedback_cycle_mask != 0)
       {
-        if ((feedback_received_mask_ & completed.feedback_cycle_mask) == completed.feedback_cycle_mask)
+        // Downsample the servo state stream by whole PVC cycles so its cadence
+        // stays locked to the control cycle, not to HAL_GetTick().
+        if ((feedback_received_mask_ & completed.feedback_cycle_mask) == completed.feedback_cycle_mask &&
+            servo_feedback_frequency_hz_ != 0 &&
+            ++feedback_cycle_count_ >= feedbackCycleDivider())
         {
+          feedback_cycle_count_ = 0;
           __atomic_store_n(&feedback_fresh_, true, __ATOMIC_RELEASE);
           __atomic_store_n(&feedback_cycle_event_, true, __ATOMIC_RELEASE);
         }

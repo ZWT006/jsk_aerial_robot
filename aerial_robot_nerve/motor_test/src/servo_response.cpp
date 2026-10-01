@@ -254,6 +254,8 @@ public:
 
     while (ros::ok())
       {
+        // Process pending state before sampling so each row holds the newest feedback.
+        ros::spinOnce();
         const double t = (ros::WallTime::now() - start).toSec();
         publishCommand(t);
 
@@ -271,7 +273,6 @@ public:
             return true;
           }
 
-        ros::spinOnce();
         rate.sleep();
       }
     return true;
@@ -285,6 +286,7 @@ private:
     std::vector<std::string> names;
     ros::Time stamp;
     ros::Time receive_stamp;
+    ros::Time arrival_stamp;
   };
 
   ros::NodeHandle nh_;
@@ -300,8 +302,9 @@ private:
   std::vector<bool> seen_;
   std::vector<std::string> state_names_;
   std::unordered_map<std::string, size_t> name_index_;
-  ros::Time state_stamp_;
-  ros::Time receive_stamp_;
+  ros::Time state_stamp_;    // msg header.stamp (spinal MCU time)
+  ros::Time receive_stamp_;  // callback run time (inside spinOnce)
+  ros::Time arrival_stamp_;  // roscpp receipt time (transport thread)
 
   bool valid_ = true;
   std::string robot_ns_;
@@ -621,6 +624,7 @@ private:
     s.names = state_names_;
     s.stamp = state_stamp_;
     s.receive_stamp = receive_stamp_;
+    s.arrival_stamp = arrival_stamp_;
     return s;
   }
 
@@ -688,10 +692,11 @@ private:
   void appendSample(double t, const State& state, const std::vector<double>& cmd)
   {
     std::vector<double> row;
-    row.reserve(3 + 2 * axis_count_);
+    row.reserve(4 + 2 * axis_count_);
     row.push_back(t);
     row.push_back(state.stamp.toNSec() * 1e-6);
     row.push_back(state.receive_stamp.toNSec() * 1e-6);
+    row.push_back(state.arrival_stamp.toNSec() * 1e-6);
     row.insert(row.end(), state.pos.begin(), state.pos.end());
     row.insert(row.end(), cmd.begin(), cmd.end());
     rows_.push_back(row);
@@ -823,7 +828,7 @@ private:
     ofs << std::fixed << std::setprecision(6);
     if (csv_header_)
       {
-        ofs << "time,state_stamp_ms,receive_stamp_ms";
+        ofs << "time,state_stamp_ms,receive_stamp_ms,arrival_stamp_ms";
         for (const auto& name : names) ofs << ",pos_" << name;
         for (const auto& name : names) ofs << ",cmd_" << name;
         ofs << "\n";
@@ -842,8 +847,9 @@ private:
     return true;
   }
 
-  void stateCallback(const sensor_msgs::JointState::ConstPtr& msg)
+  void stateCallback(const ros::MessageEvent<sensor_msgs::JointState const>& event)
   {
+    const sensor_msgs::JointState::ConstPtr& msg = event.getMessage();
     std::lock_guard<std::mutex> lock(mutex_);
 
     const bool has_vel = msg->velocity.size() == msg->name.size();
@@ -886,6 +892,7 @@ private:
 
     state_stamp_ = msg->header.stamp;
     receive_stamp_ = ros::Time::now();
+    arrival_stamp_ = event.getReceiptTime();
   }
 };
 

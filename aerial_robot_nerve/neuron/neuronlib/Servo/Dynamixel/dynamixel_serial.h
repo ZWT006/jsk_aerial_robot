@@ -596,6 +596,7 @@ private:
   ServoMask feedback_received_mask_;
   volatile bool feedback_fresh_;
   volatile bool feedback_cycle_event_;
+  uint16_t feedback_cycle_count_;
   bool phase_start_pending_;
   uint32_t phase_start_tick_;
   bool control_scheduler_started_;
@@ -618,6 +619,7 @@ private:
   bool startPendingTransaction(const ServoInstruction& instruction, bool fast_sync, uint32_t timeout_ms);
   int8_t completePendingTransaction();
   int8_t executeBlockingRead(const ServoInstruction& instruction, bool fast_sync, uint32_t timeout_ms);
+  uint16_t feedbackCycleDivider() const;
 #else
   bool enqueueInstructionBatch(
     const std::pair<uint8_t, ServoMask>* instructions,

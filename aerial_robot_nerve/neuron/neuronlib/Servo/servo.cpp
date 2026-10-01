@@ -239,19 +239,11 @@ bool Servo::update()
 void Servo::sendData()
 {
 #ifdef STM32G4
-  // Keep the Dynamixel PVC/control cycle at 200 Hz and only downsample the
-  // Neuron-to-Spinal state stream here.
-  const uint16_t feedback_frequency =
-    servo_handler_.getServoFeedbackFrequency();
-  if (feedback_frequency == 0) return;
-
-  const uint32_t feedback_interval =
-    (1000U + feedback_frequency - 1U) / feedback_frequency;
-  const uint32_t now = HAL_GetTick();
-  if (now - last_feedback_send_tick_ < feedback_interval) return;
+  // The Dynamixel PVC/control cycle stays at 200 Hz. DynamixelSerial only
+  // raises feedback_fresh_ every N PVC cycles (servo_feedback_frequency), so
+  // the cadence does not depend on which event woke canTxTask.
   if (!servo_handler_.takeFeedbackFresh())
     return;
-  last_feedback_send_tick_ = now;
 
   const unsigned int servo_count = std::min<unsigned int>(
     CAN::CANFD_MAX_SERVO_NUM, servo_handler_.getServoNum());
