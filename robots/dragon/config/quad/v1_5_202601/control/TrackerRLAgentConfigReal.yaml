@@ -79,7 +79,7 @@ rlagent:
   # ---- command gates / shaping ----
   enable_thrust: false
   enable_joint: false
-  enable_gimbal: false
+  enable_gimbal: true
   joint_effort_ctrl: false
   gimbal_effort_ctrl: false
   thrust_hover: 8.5

@@ -349,10 +349,8 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   thrust_cmd_.base_thrust = std::vector<float>(motor_num_, 0.0);
   joint_cmd_.name = joint_names_;
   joint_cmd_.position.assign(joint_size_, 0.0);
-  joint_cmd_.effort.assign(joint_size_, 0.0);
   gimbal_cmd_.name = gimbal_names_;
   gimbal_cmd_.position.assign(gimbal_size_, 0.0);
-  gimbal_cmd_.effort.assign(gimbal_size_, 0.0);
 
   if (joint_effort_ctrl_ &&
       !loadEffortControlParams("joints", joint_names_, joint_kp_, joint_kd_,
@@ -1074,6 +1072,9 @@ void DragonTrackerRLAgent::applyJointAction(const float* action_slice)
       if (static_cast<int>(target_joint_list_.size()) > joint_target_delay_steps_ + 1)
         target_joint_list_.pop_front();
     }
+  // Leave effort empty in position mode: servo_bridge forwards any non-empty
+  // effort as goal current, which caps CbP servos at zero torque.
+  joint_cmd_.effort.resize(joint_effort_ctrl_ ? joint_size_ : 0, 0.0);
   for (int i = 0; i < joint_size_; ++i)
     {
       joint_cmd_.position[i] = target_joint_[i];
@@ -1106,6 +1107,9 @@ void DragonTrackerRLAgent::applyGimbalAction(const float* action_slice)
       if (static_cast<int>(target_gimbal_list_.size()) > gimbal_target_delay_steps_ + 1)
         target_gimbal_list_.pop_front();
     }
+  // Leave effort empty in position mode: servo_bridge forwards any non-empty
+  // effort as goal current, which caps CbP servos at zero torque.
+  gimbal_cmd_.effort.resize(gimbal_effort_ctrl_ ? gimbal_size_ : 0, 0.0);
   for (int i = 0; i < gimbal_size_; ++i)
     {
       gimbal_cmd_.position[i] = target_gimbal_[i];
