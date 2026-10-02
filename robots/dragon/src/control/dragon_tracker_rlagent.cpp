@@ -182,12 +182,14 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<bool>(rl_nh, "enable_gimbal", enable_gimbal_, false);
   getParam<bool>(rl_nh, "joint_effort_ctrl", joint_effort_ctrl_, false);
   getParam<bool>(rl_nh, "gimbal_effort_ctrl", gimbal_effort_ctrl_, false);
+  getParam<bool>(rl_nh, "action_clamp", action_clamp_, false);
   getParam<double>(rl_nh, "thrust_hover", thrust_hover_, 8.5);
   getParam<double>(rl_nh, "thrust_limit", thrust_limit_, 16.0);
   getParam<double>(rl_nh, "thrust_scale", thrust_scale_default_, 1.0);
   if (thrust_scale_default_ > 1.0) thrust_scale_default_ = 1.0;
-  getParam<double>(rl_nh, "joint_limit", joint_limit_, 1.51);
-  getParam<double>(rl_nh, "gimbal_limit", gimbal_limit_, M_PI);
+  getParam<double>(rl_nh, "joint_limit", joint_limit_, 1.57);
+  getParam<double>(rl_nh, "gimbal_roll_limit", gimbal_roll_limit_, M_PI);
+  getParam<double>(rl_nh, "gimbal_pitch_limit", gimbal_pitch_limit_, M_PI);
   getParam<int>(rl_nh, "joint_target_delay_steps", joint_target_delay_steps_, 0);
   getParam<int>(rl_nh, "gimbal_target_delay_steps", gimbal_target_delay_steps_, 0);
   getParam<int>(rl_nh, "thrust_target_delay_steps", thrust_target_delay_steps_, 0);
@@ -203,6 +205,9 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   joint_size_ = static_cast<int>(joint_names_.size());
   gimbal_size_ = static_cast<int>(gimbal_names_.size());
   pair_size_ = static_cast<int>(thrust_pair_names_.size());
+  if (!buildGimbalPositionLimits(gimbal_roll_limit_, gimbal_pitch_limit_,
+                                 gimbal_position_limits_))
+    return;
 
   obs_terms_ = parseStringListParam(rl_nh, "observations",
       {"target_obs_history", "joint_pos", "joint_vel", "gimbal_pos", "gimbal_vel",
@@ -886,6 +891,36 @@ size_t DragonTrackerRLAgent::actionGroupDim(const std::string& group) const
   return 0;
 }
 
+bool DragonTrackerRLAgent::buildGimbalPositionLimits(
+  double roll_limit, double pitch_limit, std::vector<double>& limits) const
+{
+  if (!std::isfinite(roll_limit) || roll_limit < 0.0 ||
+      !std::isfinite(pitch_limit) || pitch_limit < 0.0)
+    {
+      ROS_ERROR("[RL-Tracker] Gimbal position limits must be finite and non-negative "
+                "(roll=%g, pitch=%g).", roll_limit, pitch_limit);
+      return false;
+    }
+
+  std::vector<double> mapped_limits;
+  mapped_limits.reserve(gimbal_names_.size());
+  for (const auto& name : gimbal_names_)
+    {
+      const bool is_roll = name.find("roll") != std::string::npos;
+      const bool is_pitch = name.find("pitch") != std::string::npos;
+      if (is_roll == is_pitch)
+        {
+          ROS_ERROR("[RL-Tracker] Cannot select roll/pitch limit for gimbal '%s'.",
+                    name.c_str());
+          return false;
+        }
+      mapped_limits.push_back(is_roll ? roll_limit : pitch_limit);
+    }
+
+  limits = std::move(mapped_limits);
+  return true;
+}
+
 bool DragonTrackerRLAgent::loadEffortControlParams(const std::string& group_name,
                                                    const std::vector<std::string>& names,
                                                    std::vector<double>& kp,
@@ -1028,7 +1063,9 @@ void DragonTrackerRLAgent::applyJointAction(const float* action_slice)
   for (int i = 0; i < joint_size_; ++i)
     {
       double target = action_slice[i] * scales_["joint_act"] + joint_default_pos_[i];
-      target_joint_[i] = clampDouble(target, -joint_limit_, joint_limit_);
+      target_joint_[i] = action_clamp_
+        ? clampDouble(target, -joint_limit_, joint_limit_)
+        : target;
     }
   if (joint_target_delay_steps_ > 0)
     {
@@ -1057,7 +1094,10 @@ void DragonTrackerRLAgent::applyGimbalAction(const float* action_slice)
   for (int i = 0; i < gimbal_size_; ++i)
     {
       double target = action_slice[i] * scales_["gimbal_act"] + gimbal_default_pos_[i];
-      target_gimbal_[i] = clampDouble(target, -gimbal_limit_, gimbal_limit_);
+      const double limit = gimbal_position_limits_[i];
+      target_gimbal_[i] = action_clamp_
+        ? clampDouble(target, -limit, limit)
+        : target;
     }
   if (gimbal_target_delay_steps_ > 0)
     {
@@ -1397,6 +1437,8 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
   getParam<bool>(rl_nh, "enable_gimbal", enable_gimbal_, enable_gimbal_);
   getParam<bool>(rl_nh, "joint_effort_ctrl", joint_effort_ctrl_, joint_effort_ctrl_);
   getParam<bool>(rl_nh, "gimbal_effort_ctrl", gimbal_effort_ctrl_, gimbal_effort_ctrl_);
+  bool new_action_clamp = action_clamp_;
+  getParam<bool>(rl_nh, "action_clamp", new_action_clamp, new_action_clamp);
   getParam<bool>(rl_nh, "rlagent_verbose", verbose_, verbose_);
   getParam<bool>(rl_nh, "rlagent_debug", debug_, debug_);
   getParam<bool>(rl_nh, "rlagent_forward_info", forward_info_, forward_info_);
@@ -1408,7 +1450,25 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
   getParam<double>(rl_nh, "thrust_hover", thrust_hover_, thrust_hover_);
   getParam<double>(rl_nh, "thrust_limit", thrust_limit_, thrust_limit_);
   getParam<double>(rl_nh, "joint_limit", joint_limit_, joint_limit_);
-  getParam<double>(rl_nh, "gimbal_limit", gimbal_limit_, gimbal_limit_);
+
+  double new_gimbal_roll_limit = gimbal_roll_limit_;
+  double new_gimbal_pitch_limit = gimbal_pitch_limit_;
+  getParam<double>(rl_nh, "gimbal_roll_limit", new_gimbal_roll_limit,
+                   new_gimbal_roll_limit);
+  getParam<double>(rl_nh, "gimbal_pitch_limit", new_gimbal_pitch_limit,
+                   new_gimbal_pitch_limit);
+  std::vector<double> new_gimbal_position_limits;
+  if (!buildGimbalPositionLimits(new_gimbal_roll_limit, new_gimbal_pitch_limit,
+                                 new_gimbal_position_limits))
+    {
+      res.success = false;
+      res.message = "Invalid gimbal roll/pitch position limits; previous limits retained.";
+      return true;
+    }
+  action_clamp_ = new_action_clamp;
+  gimbal_roll_limit_ = new_gimbal_roll_limit;
+  gimbal_pitch_limit_ = new_gimbal_pitch_limit;
+  gimbal_position_limits_ = std::move(new_gimbal_position_limits);
 
   double new_thrust_scale = thrust_scale_default_;
   getParam<double>(rl_nh, "thrust_scale", new_thrust_scale, new_thrust_scale);
@@ -1431,10 +1491,13 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
                 " enable_gimbal=" + std::to_string(enable_gimbal_) +
                 " joint_effort_ctrl=" + std::to_string(joint_effort_ctrl_) +
                 " gimbal_effort_ctrl=" + std::to_string(gimbal_effort_ctrl_) +
+                " action_clamp=" + std::to_string(action_clamp_) +
                 " replace_dof_vel_with_last_pos=" +
                 std::to_string(replace_dof_vel_with_last_pos_) +
                 " thrust_scale=" + std::to_string(thrust_scale_default_) +
-                " joint_limit=" + std::to_string(joint_limit_);
+                " joint_limit=" + std::to_string(joint_limit_) +
+                " gimbal_roll_limit=" + std::to_string(gimbal_roll_limit_) +
+                " gimbal_pitch_limit=" + std::to_string(gimbal_pitch_limit_);
   ROS_INFO("[RL-Tracker] %s", res.message.c_str());
   return true;
 }

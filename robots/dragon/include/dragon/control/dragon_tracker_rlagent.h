@@ -83,6 +83,8 @@ namespace aerial_robot_control
     void appendObsTerm(const std::string& term, std::vector<float>& out);
     size_t obsTermDim(const std::string& term) const;
     size_t actionGroupDim(const std::string& group) const;
+    bool buildGimbalPositionLimits(double roll_limit, double pitch_limit,
+                                   std::vector<double>& limits) const;
     bool loadEffortControlParams(const std::string& group_name,
                                  const std::vector<std::string>& names,
                                  std::vector<double>& kp,
@@ -232,11 +234,14 @@ namespace aerial_robot_control
     bool enable_gimbal_ = false;
     bool joint_effort_ctrl_ = false;
     bool gimbal_effort_ctrl_ = false;
+    bool action_clamp_ = true;    // clamp scaled joint/gimbal position targets
     double thrust_hover_ = 8.5;   // N per EDF, ctrlCfg.thrust_hover
     double thrust_limit_ = 16.0;  // N, rotor max
     double thrust_scale_default_ = 1.0;
     double joint_limit_ = 1.51;   // rad, command clamp
-    double gimbal_limit_ = M_PI;  // rad, command clamp
+    double gimbal_roll_limit_ = M_PI;   // rad, symmetric command clamp
+    double gimbal_pitch_limit_ = M_PI;  // rad, symmetric command clamp
+    std::vector<double> gimbal_position_limits_;  // sim order, selected by name
     std::vector<double> joint_kp_, joint_kd_, joint_effort_limit_;
     std::vector<double> gimbal_kp_, gimbal_kd_, gimbal_effort_limit_;
     std::vector<float> target_joint_, target_gimbal_, target_thrust_;

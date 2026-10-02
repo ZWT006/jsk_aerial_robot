@@ -21,6 +21,11 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 
 # policy-2026-09-18_22-19-13-27k.onnx   # amp with diverse trajectories
 
+# -------------------------------------------------------------------------
+# replace dof vel with last pos
+# deploy-2026-09-29_22-22-24-30k.onnx   # identified gimbal kp,kd
+# deploy-2026-10-01_22-07-58-25k.onnx   # changed delay align with 40Hz
+
 # rosservice call /dragon/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
 
@@ -80,8 +85,11 @@ rlagent:
   thrust_hover: 8.5
   thrust_limit: 16.0
   thrust_scale: 1.0
+  # Clamp scaled joint/gimbal targets without changing action_ or last_action.
+  action_clamp: false
   joint_limit: 1.5708
-  gimbal_limit: 3.14
+  gimbal_roll_limit: 3.14
+  gimbal_pitch_limit: 3.14
   joint_target_delay_steps: 0
   gimbal_target_delay_steps: 0
   thrust_target_delay_steps: 0

@@ -75,8 +75,10 @@ servo_controller:
     simulation:
       # Default to the training XM430-W210-T gimbal-roll actuator.
       # gimbal pitch controllers override this below.
-      mit_kp_si: 0.6349
-      mit_kd_si: 0.01183
+      # mit_kp_si: 0.6349
+      # mit_kd_si: 0.01183
+      mit_kp_si: 22.8367
+      mit_kd_si: 0.30235
       effort_limit: 3.0
       # Kept for servo_bridge controller-loading compatibility. The RL agent
       # reads only mit_kp_si, mit_kd_si and effort_limit above.
@@ -91,8 +93,10 @@ servo_controller:
       id: 2
       name: gimbal1_pitch
       simulation:
-        mit_kp_si: 0.6349
-        mit_kd_si: 0.01183
+        # mit_kp_si: 0.6349
+        # mit_kd_si: 0.01183
+        mit_kp_si: 1.0238
+        mit_kd_si: 0.03236
         effort_limit: 0.76
         pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
     controller3:
@@ -102,8 +106,10 @@ servo_controller:
       id: 6
       name: gimbal2_pitch
       simulation:
-        mit_kp_si: 0.6349
-        mit_kd_si: 0.01183
+        # mit_kp_si: 0.6349
+        # mit_kd_si: 0.01183
+        mit_kp_si: 1.0238
+        mit_kd_si: 0.03236
         effort_limit: 0.76
         pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
     controller5:
@@ -113,8 +119,10 @@ servo_controller:
       id: 10
       name: gimbal3_pitch
       simulation:
-        mit_kp_si: 0.6349
-        mit_kd_si: 0.01183
+        # mit_kp_si: 0.6349
+        # mit_kd_si: 0.01183
+        mit_kp_si: 1.0238
+        mit_kd_si: 0.03236
         effort_limit: 0.76
         pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}
     controller7:
@@ -124,7 +132,9 @@ servo_controller:
       id: 12
       name: gimbal4_pitch
       simulation:
-        mit_kp_si: 0.6349
-        mit_kd_si: 0.01183
+        # mit_kp_si: 0.6349
+        # mit_kd_si: 0.01183
+        mit_kp_si: 1.0238
+        mit_kd_si: 0.03236
         effort_limit: 0.76
         pid: {p: 0.593, i: 0.0, d: 0.037, i_clamp_min: -0.76, i_clamp_max: 0.76}

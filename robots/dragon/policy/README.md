@@ -93,6 +93,12 @@ Runtime services:
 /dragon/rlagent/reload_params             # std_srvs/Trigger
 ```
 
+Enable servo torque by services (be careful to do that):
+```bash
+rosservice call /dragon/gimbals/torque_enable "data: true"
+rosservice call /dragon/joints/torque_enable "data: true"
+```
+
 ## Observation Layout
 
 The observation is fully configured by
@@ -173,7 +179,12 @@ joint_target  = action * scales/joint_act  + joint_default
 gimbal_target = action * scales/gimbal_act + gimbal_default
 ```
 
-They are then clamped by `joint_limit` and `gimbal_limit`. In effort mode the
+When `action_clamp` is true, these scaled position targets are clamped by
+`joint_limit`, `gimbal_roll_limit`, and `gimbal_pitch_limit`. Gimbal limits are
+selected from each entry in `gimbal_names`, so the policy action order does not
+need to group roll and pitch axes. The normalized policy action stored in
+`action_` (after the training-matched `scales/clip_action` step) and fed back
+through `last_action` is not changed by this target clamp. In effort mode the
 position target is converted to torque:
 
 ```text
@@ -192,7 +203,8 @@ base_thrust[module_index] = 2 * target_thrust
 
 `thrust_limit` is therefore a per-EDF limit. The value published to
 `four_axes/command.base_thrust` is doubled because each DRAGON module is a
-dual-EDF pair.
+dual-EDF pair. This physical thrust clamp remains active independently of
+`action_clamp`.
 
 ## Effort Control Parameters
 
