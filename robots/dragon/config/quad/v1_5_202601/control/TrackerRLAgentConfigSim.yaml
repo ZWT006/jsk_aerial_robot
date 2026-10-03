@@ -26,11 +26,11 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # policy-2026-09-24_19-15-54-30k.onnx
 # policy-2026-09-25_16-02-42-30k.onnx   # replace dof vel with last pos
 
-rosservice call /dragon/rlagent/reload_policy \
-  "policy_name: 'policy/policy-2026-10-01_22-07-58-25k.onnx'"
+# rosservice call /dragon/rlagent/reload_policy \
+#   "policy_name: 'policy/policy-2026-10-01_22-07-58-25k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-01_22-07-58-30k.onnx"
+  onnx_model_path: "policy/policy-2026-10-01_22-07-58-25k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----

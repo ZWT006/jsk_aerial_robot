@@ -22,8 +22,9 @@ t:  takeoff
 l:  land (disabled for RL agent)
 f:  force landing
 h:  halt (force stop motor)
-O:  enable joint/gimbal control and torque, take off, and start tracking
-L:  land tracking (available for RL agent)
+M:  start tracking (Model-based only)
+O:  (RL only!) enable joint/gimbal control and torque, take off, and start tracking
+K:  (RL only!) land tracking
 o:  disable pause 
 p:  pause tracking
 0:  reset fault
@@ -145,7 +146,7 @@ if __name__=="__main__":
         print("ns:", robot_ns or '<global>')
 
         teleop_ns = topicName(robot_ns, "teleop_command")
-        # land_pub = rospy.Publisher(topicName(teleop_ns, 'land'), Empty, queue_size=1)
+        land_pub = rospy.Publisher(topicName(teleop_ns, 'land'), Empty, queue_size=1)
         halt_pub = rospy.Publisher(topicName(teleop_ns, 'halt'), Empty, queue_size=1)
         start_pub = rospy.Publisher(topicName(teleop_ns, 'start'), Empty, queue_size=1)
         takeoff_pub = rospy.Publisher(topicName(teleop_ns, 'takeoff'), Empty, queue_size=1)
@@ -187,7 +188,7 @@ if __name__=="__main__":
                 msg = ""
 
                 if key == 'l':
-                        # land_pub.publish(Empty())
+                        land_pub.publish(Empty())
                         msg = "===== send land command ====="
                 if key == 'r':
                         start_pub.publish(Empty())
@@ -211,9 +212,12 @@ if __name__=="__main__":
                         takeoff_pub.publish(Empty())
                         start_tracking_pub.publish(Empty())
                         msg = "===== send start tracking command ====="
-                if key == 'L':
+                if key == 'K':
                         land_tracking_pub.publish(Empty())
                         msg = "===== send land_tracking command ====="
+                if key == 'M':
+                        start_tracking_pub.publish(Empty())
+                        msg = "===== send start tracking command (Model-based only) ====="
                 # if key == 'b':
                 #         brake_pub.publish(Empty())
                 #         msg = "===== send brake command ====="
