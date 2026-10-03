@@ -22,48 +22,24 @@ servo_controller:
     sample_freq: 200.0
     cutoff_freq: 10.0
 
-    simulation:
-      # Training actuator: XM430-W350-R link joint, 2:1 gear ratio.
-      # kp/kd are scaled from XC330-T181 by 8.2 / 0.76.
-      mit_kp_si: 4.8309
-      mit_kd_si: 0.3075
-      effort_limit: 6.2
-      # Kept for servo_bridge controller-loading compatibility. The RL agent
-      # reads only mit_kp_si, mit_kd_si and effort_limit above.
-      pid: {p: 6.39763, i: 0.0, d: 0.399211, i_clamp_min: -8.2, i_clamp_max: 8.2}
-      # init_pose is consumed by gazebo_quick_init_pose.py. init_value is the
-      # first command sent to the effort controller, so keep it zero.
-      init_pose: 0.0
-      init_value: 0.0
-      type: effort_controllers/JointEffortController
-
     controller1:
       id: 1
       name: joint1_pitch
     controller2:
       id: 0
       name: joint1_yaw
-      simulation:
-        init_pose: 1.57
-        init_value: 0.0
     controller3:
       id: 5
       name: joint2_pitch
     controller4:
       id: 4
       name: joint2_yaw
-      simulation:
-        init_pose: 1.57
-        init_value: 0.0
     controller5:
       id: 9
       name: joint3_pitch
     controller6:
       id: 8
       name: joint3_yaw
-      simulation:
-        init_pose: 1.57
-        init_value: 0.0
 
   gimbals:
     no_real_state: false
@@ -78,18 +54,6 @@ servo_controller:
     mit_kp_si: 1.5396 # 0.6349
     mit_kd_si: 0.04732 # 0.01183
     mit_effort_limit_si: 1.9 # 0.38
-
-    simulation:
-      # Default to the training XM430-W210-T gimbal-roll actuator.
-      # gimbal pitch controllers override this below.
-      mit_kp_si: 0.6349
-      mit_kd_si: 0.01183
-      effort_limit: 0.38
-      # Kept for servo_bridge controller-loading compatibility. The RL agent
-      # reads only mit_kp_si, mit_kd_si and effort_limit above.
-      pid: {p: 2.34079, i: 0.0, d: 0.146053, i_clamp_min: -3.0, i_clamp_max: 3.0}
-      init_value: 0.0
-      type: effort_controllers/JointEffortController
 
     controller1:
       id: 3

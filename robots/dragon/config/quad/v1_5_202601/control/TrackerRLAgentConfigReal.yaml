@@ -25,6 +25,7 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # replace dof vel with last pos
 # deploy-2026-09-29_22-22-24-30k.onnx   # identified gimbal kp,kd
 # deploy-2026-10-01_22-07-58-25k.onnx   # changed delay align with 40Hz
+# policy-2026-10-02_22-17-41-22k.onnx   # multi-trajectory training
 
 # rosservice call /dragon/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"

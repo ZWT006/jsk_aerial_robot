@@ -36,6 +36,11 @@
        duration: collection time [s].
        position_limit: non-negative symmetric work range [rad]; 0 keeps the relative command at zero.
        cmd_period: hold time for step, base period for sweep/multi [s]. -->
+  <!-- Quick estimate of the sweep parameters: A_max ≈ v_max · n · M / 15 
+        n: cmd_period
+        M: period_scale
+        A_max: estimated maximum amplitude (position_limit)
+        -->
   <arg name="control_freq" default="200" />
   <arg name="duration" default="200" />
   <arg name="position_limit" default="1.57" />
