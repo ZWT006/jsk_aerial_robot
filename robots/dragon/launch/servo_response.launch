@@ -9,7 +9,7 @@
   <arg name="signal_type" default="step" />
   <arg name="control_freq" default="100" />
   <arg name="duration" default="100" />
-  <arg name="position_limit" default="0.25" /> <!-- Roll: 0.30, Pitch 1.57 -->
+  <arg name="position_limit" default="0.0" /> <!-- Roll: 0.30, Pitch 1.57 -->
   <arg name="cmd_period" default="1.0" />
   <arg name="period_scale" default="100" />
   <arg name="step_height" default="0.05" />

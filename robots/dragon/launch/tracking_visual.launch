@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<launch>
+  ###########  RViz visualization only  ###########
+  # Robot side:  roslaunch dragon bringup_rl_tracking.launch headless:=True
+  # PC side:     roslaunch dragon tracking_visual.launch
+  # robot_description and TF are provided by bringup_rl_tracking on the same ROS master.
+
+  <arg name="rviz_config" default="$(find dragon)/config/RLrviz_config" />
+
+  <node name="$(anon rviz)" pkg="rviz" type="rviz" args="-d $(arg rviz_config)" respawn="true" output="screen" />
+</launch>

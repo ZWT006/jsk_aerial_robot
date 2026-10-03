@@ -270,7 +270,7 @@ int main(void)
   idleTaskHandle = osThreadCreate(osThread(idleTask), NULL);
 
   /* definition and creation of servoTask */
-  osThreadDef(servoTask, servoTaskCallback, osPriorityRealtime, 0, 512);
+  osThreadDef(servoTask, servoTaskCallback, osPriorityHigh, 0, 512);
   servoTaskHandle = osThreadCreate(osThread(servoTask), NULL);
 
   /* definition and creation of coreTask */
