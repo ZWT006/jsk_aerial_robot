@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-demo.yaml" /> -->
+  <arg name="config" default="$(find dragon)/config/trajectory/dragon-demo.yaml" />
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-move-demo.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-dance.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-diverse-trajs.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-Instability.yaml" /> -->
-  <arg name="config" default="$(find dragon)/config/trajectory/amp-Yaw-L.yaml" />
+  <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-Yaw-L.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-default.yaml" /> -->
 
   <arg name="robot_ns" default="dragon" />

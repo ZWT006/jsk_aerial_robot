@@ -77,8 +77,8 @@ servo_controller:
       # gimbal pitch controllers override this below.
       # mit_kp_si: 0.6349
       # mit_kd_si: 0.01183
-      mit_kp_si: 22.8367
-      mit_kd_si: 0.30235
+      mit_kp_si: 14.5422
+      mit_kd_si: 0.26287
       effort_limit: 3.0
       # Kept for servo_bridge controller-loading compatibility. The RL agent
       # reads only mit_kp_si, mit_kd_si and effort_limit above.

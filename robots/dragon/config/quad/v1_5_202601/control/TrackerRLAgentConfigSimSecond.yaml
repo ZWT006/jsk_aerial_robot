@@ -98,7 +98,8 @@ rlagent:
     lin_vel: 1.0
     ang_vel: 0.2
     joint_act: 0.15
-    gimbal_act: 0.25
+    gimbal_roll_act: 0.125
+    gimbal_pitch_act: 0.25
     thrust_act: 0.5
     clip_observation: 100.0
     clip_action: 100.0

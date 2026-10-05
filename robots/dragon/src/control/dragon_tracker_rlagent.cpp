@@ -9,7 +9,7 @@
 //     joint_pos(6) | joint_vel(6)*dof_vel (or last_joint_pos) |
 //     gimbal_pos(8) | gimbal_vel(8)*dof_vel (or last_gimbal_pos) |
 //     root_rot6d(6) | lin_vel_b(3)*lin_vel | ang_vel_b(3)*ang_vel | last_action(18) ]
-// Action: [ joint(6)*joint_act | gimbal(8)*gimbal_act | paired per-EDF thrust(4)*thrust_act + hover ]
+// Action: [ joint(6)*joint_act | gimbal(8)*roll/pitch_act | paired per-EDF thrust(4)*thrust_act + hover ]
 //
 
 #include "dragon/control/dragon_tracker_rlagent.h"
@@ -21,6 +21,8 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
+
+#define TURNOFF_ROTOR_DECAY_DURATION_SEC 3.0
 
 namespace
 {
@@ -255,8 +257,9 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<XmlRpc::XmlRpcValue>(rl_nh, "scales", scales_xml, XmlRpc::XmlRpcValue());
   for (auto it = scales_xml.begin(); it != scales_xml.end(); ++it)
     scales_[static_cast<std::string>(it->first)] = static_cast<double>(it->second);
-  for (const auto& key : {"dof_vel", "lin_vel", "ang_vel", "joint_act", "gimbal_act",
-                          "thrust_act", "clip_observation", "clip_action"})
+  for (const auto& key : {"dof_vel", "lin_vel", "ang_vel", "joint_act",
+                          "gimbal_roll_act", "gimbal_pitch_act", "thrust_act",
+                          "clip_observation", "clip_action"})
     {
       if (scales_.find(key) == scales_.end())
         {
@@ -264,6 +267,9 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
           return;
         }
     }
+  if (!buildGimbalActionScales(scales_["gimbal_roll_act"], scales_["gimbal_pitch_act"],
+                               gimbal_action_scales_))
+    return;
 
   // state buffers
   joint_pos_.assign(joint_size_, 0.0);
@@ -329,10 +335,11 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   target_state_sub_ = nh_.subscribe(target_state_topic_, 10, &DragonTrackerRLAgent::targetStateCallback, this);
 
   thrust_pub_ = nh_.advertise<spinal::FourAxisCommand>("four_axes/command", 1);
-  enable_all_arm_sub_ = nh_.subscribe("teleop_command/start", 1, &DragonTrackerRLAgent::enableJointAndGimbalCallback, this);
+  enable_all_arm_sub_ = nh_.subscribe("teleop_command/start", 1, &DragonTrackerRLAgent::enableAllArmCallback, this);
   enable_all_tracking_sub_ = nh_.subscribe("teleop_command/start_tracking", 1, &DragonTrackerRLAgent::enableJointAndGimbalCallback, this);
   force_landing_sub_ = nh_.subscribe("teleop_command/force_landing", 1, &DragonTrackerRLAgent::forceLandingCallback, this);
   halt_sub_ = nh_.subscribe("teleop_command/halt", 1, &DragonTrackerRLAgent::haltCallback, this);
+  turnoff_rotor_sub_ = nh_.subscribe("teleop_command/turnoff_rotor", 1, &DragonTrackerRLAgent::turnoffRotorCallback, this);
   joint_pub_ = nh_.advertise<sensor_msgs::JointState>("joints_ctrl", 1);
   gimbal_pub_ = nh_.advertise<sensor_msgs::JointState>("gimbals_ctrl", 1);
   thrust_debug_pub_ = nh_.advertise<spinal::FourAxisCommand>("rlagent/thrust_cmd_debug", 1);
@@ -580,7 +587,8 @@ void DragonTrackerRLAgent::seedActionFromState()
       action_[i] = (joint_pos_[i] - joint_default_pos_[i]) / scales_["joint_act"];
   if (gimbal_catch_)
     for (int i = 0; i < gimbal_size_; ++i)
-      action_[joint_size_ + i] = (gimbal_pos_[i] - gimbal_default_pos_[i]) / scales_["gimbal_act"];
+      action_[joint_size_ + i] =
+        (gimbal_pos_[i] - gimbal_default_pos_[i]) / gimbal_action_scales_[i];
   for (int i = 0; i < pair_size_; ++i)
     action_[joint_size_ + gimbal_size_ + i] = -thrust_hover_ / scales_["thrust_act"];
   last_action_ = action_;
@@ -889,6 +897,36 @@ size_t DragonTrackerRLAgent::actionGroupDim(const std::string& group) const
   return 0;
 }
 
+bool DragonTrackerRLAgent::buildGimbalActionScales(
+  double roll_scale, double pitch_scale, std::vector<double>& scales) const
+{
+  if (!std::isfinite(roll_scale) || roll_scale <= 0.0 ||
+      !std::isfinite(pitch_scale) || pitch_scale <= 0.0)
+    {
+      ROS_ERROR("[RL-Tracker] Gimbal action scales must be finite and positive "
+                "(roll=%g, pitch=%g).", roll_scale, pitch_scale);
+      return false;
+    }
+
+  std::vector<double> mapped_scales;
+  mapped_scales.reserve(gimbal_names_.size());
+  for (const auto& name : gimbal_names_)
+    {
+      const bool is_roll = name.find("roll") != std::string::npos;
+      const bool is_pitch = name.find("pitch") != std::string::npos;
+      if (is_roll == is_pitch)
+        {
+          ROS_ERROR("[RL-Tracker] Cannot select roll/pitch action scale for gimbal '%s'.",
+                    name.c_str());
+          return false;
+        }
+      mapped_scales.push_back(is_roll ? roll_scale : pitch_scale);
+    }
+
+  scales = std::move(mapped_scales);
+  return true;
+}
+
 bool DragonTrackerRLAgent::buildGimbalPositionLimits(
   double roll_limit, double pitch_limit, std::vector<double>& limits) const
 {
@@ -1094,7 +1132,7 @@ void DragonTrackerRLAgent::applyGimbalAction(const float* action_slice)
 {
   for (int i = 0; i < gimbal_size_; ++i)
     {
-      double target = action_slice[i] * scales_["gimbal_act"] + gimbal_default_pos_[i];
+      double target = action_slice[i] * gimbal_action_scales_[i] + gimbal_default_pos_[i];
       const double limit = gimbal_position_limits_[i];
       target_gimbal_[i] = action_clamp_
         ? clampDouble(target, -limit, limit)
@@ -1127,6 +1165,19 @@ void DragonTrackerRLAgent::applyGimbalAction(const float* action_slice)
 
 void DragonTrackerRLAgent::applyThrustAction(const float* action_slice)
 {
+  if (turnoff_rotor_ramping_)
+    {
+      const double elapsed = std::max(
+        0.0, (ros::WallTime::now() - turnoff_rotor_start_time_).toSec());
+      turnoff_thrust_scale_ =
+        clampDouble(1.0 - elapsed / TURNOFF_ROTOR_DECAY_DURATION_SEC, 0.0, 1.0);
+      if (turnoff_thrust_scale_ <= 0.0)
+        {
+          turnoff_rotor_ramping_ = false;
+          ROS_WARN("[RL-Tracker] Rotor turnoff ramp completed; thrust scale is zero.");
+        }
+    }
+
   for (int i = 0; i < pair_size_; ++i)
     {
       double per_rotor_thrust = action_slice[i] * scales_["thrust_act"] + thrust_hover_;
@@ -1145,7 +1196,8 @@ void DragonTrackerRLAgent::applyThrustAction(const float* action_slice)
     {
       // Training action is per-rotor thrust. The JSK/DRAGON base_thrust command
       // addresses one dual-EDF module, so send the paired total force.
-      thrust_cmd_.base_thrust[pair_module_index_[i]] = 2.0f * target_thrust_[i];
+      thrust_cmd_.base_thrust[pair_module_index_[i]] =
+        2.0f * target_thrust_[i] * static_cast<float>(turnoff_thrust_scale_);
     }
 }
 
@@ -1298,6 +1350,16 @@ void DragonTrackerRLAgent::odomCallback(const nav_msgs::Odometry::ConstPtr& msg)
   odom_catch_ = true;
 }
 
+void DragonTrackerRLAgent::enableAllArmCallback(
+  const std_msgs::Empty::ConstPtr& /*msg*/)
+{
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  enable_gimbal_ = true;
+  turnoff_rotor_ramping_ = false;
+  turnoff_thrust_scale_ = 1.0;
+  ROS_INFO("[RL-Tracker] Joint/gimbal commands enabled and rotor thrust scale reset by arm.");
+}
+
 void DragonTrackerRLAgent::enableJointAndGimbalCallback(
   const std_msgs::Empty::ConstPtr& /*msg*/)
 {
@@ -1321,6 +1383,21 @@ void DragonTrackerRLAgent::haltCallback(const std_msgs::Empty::ConstPtr& /*msg*/
   enable_joint_ = false;
   enable_gimbal_ = false;
   ROS_WARN("[RL-Tracker] Halt: joint/gimbal commands disabled.");
+}
+
+void DragonTrackerRLAgent::turnoffRotorCallback(const std_msgs::Empty::ConstPtr& /*msg*/)
+{
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  if (turnoff_rotor_ramping_ || turnoff_thrust_scale_ < 1.0)
+    {
+      ROS_WARN("[RL-Tracker] Rotor turnoff already active or complete; command ignored.");
+      return;
+    }
+
+  turnoff_rotor_start_time_ = ros::WallTime::now();
+  turnoff_rotor_ramping_ = true;
+  ROS_WARN("[RL-Tracker] Rotor turnoff requested; ramping thrust scale to zero over %.1f s.",
+           TURNOFF_ROTOR_DECAY_DURATION_SEC);
 }
 
 void DragonTrackerRLAgent::targetStateCallback(const aerial_robot_msgs::FullStateTarget::ConstPtr& msg)

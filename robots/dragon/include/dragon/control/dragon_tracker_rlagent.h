@@ -83,6 +83,8 @@ namespace aerial_robot_control
     void appendObsTerm(const std::string& term, std::vector<float>& out);
     size_t obsTermDim(const std::string& term) const;
     size_t actionGroupDim(const std::string& group) const;
+    bool buildGimbalActionScales(double roll_scale, double pitch_scale,
+                                 std::vector<double>& scales) const;
     bool buildGimbalPositionLimits(double roll_limit, double pitch_limit,
                                    std::vector<double>& limits) const;
     bool loadEffortControlParams(const std::string& group_name,
@@ -105,9 +107,11 @@ namespace aerial_robot_control
     void targetStateCallback(const aerial_robot_msgs::FullStateTarget::ConstPtr& msg);
     void brakeCallback(const std_msgs::Empty::ConstPtr& msg);
     void unbrakeCallback(const std_msgs::Empty::ConstPtr& msg);
+    void enableAllArmCallback(const std_msgs::Empty::ConstPtr& msg);
     void enableJointAndGimbalCallback(const std_msgs::Empty::ConstPtr& msg);
     void forceLandingCallback(const std_msgs::Empty::ConstPtr& msg);
     void haltCallback(const std_msgs::Empty::ConstPtr& msg);
+    void turnoffRotorCallback(const std_msgs::Empty::ConstPtr& msg);
     bool reloadPolicyCallback(aerial_robot_model::ReloadPolicy::Request& req,
                               aerial_robot_model::ReloadPolicy::Response& res);
     bool reloadParamsCallback(std_srvs::Trigger::Request& req, std_srvs::Trigger::Response& res);
@@ -117,7 +121,7 @@ namespace aerial_robot_control
   private:
     ros::Subscriber joint_state_sub_, odom_sub_, target_state_sub_, brake_sub_, unbrake_sub_;
     ros::Subscriber enable_all_arm_sub_, enable_all_tracking_sub_;
-    ros::Subscriber force_landing_sub_, halt_sub_;
+    ros::Subscriber force_landing_sub_, halt_sub_, turnoff_rotor_sub_;
     ros::Publisher thrust_pub_, joint_pub_, gimbal_pub_;
     std::vector<ros::Publisher> joint_effort_pubs_, gimbal_effort_pubs_;
     ros::Publisher thrust_debug_pub_, joint_debug_pub_, gimbal_debug_pub_;
@@ -238,9 +242,13 @@ namespace aerial_robot_control
     double thrust_hover_ = 8.5;   // N per EDF, ctrlCfg.thrust_hover
     double thrust_limit_ = 16.0;  // N, rotor max
     double thrust_scale_default_ = 1.0;
+    double turnoff_thrust_scale_ = 1.0;
+    bool turnoff_rotor_ramping_ = false;
+    ros::WallTime turnoff_rotor_start_time_;
     double joint_limit_ = 1.51;   // rad, command clamp
     double gimbal_roll_limit_ = M_PI;   // rad, symmetric command clamp
     double gimbal_pitch_limit_ = M_PI;  // rad, symmetric command clamp
+    std::vector<double> gimbal_action_scales_;   // sim order, selected by name
     std::vector<double> gimbal_position_limits_;  // sim order, selected by name
     std::vector<double> joint_kp_, joint_kd_, joint_effort_limit_;
     std::vector<double> gimbal_kp_, gimbal_kd_, gimbal_effort_limit_;

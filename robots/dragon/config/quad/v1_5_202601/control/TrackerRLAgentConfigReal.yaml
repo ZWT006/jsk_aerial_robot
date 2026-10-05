@@ -26,6 +26,8 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # deploy-2026-09-29_22-22-24-30k.onnx   # identified gimbal kp,kd
 # deploy-2026-10-01_22-07-58-25k.onnx   # changed delay align with 40Hz
 # policy-2026-10-02_22-17-41-22k.onnx   # multi-trajectory training
+# policy-2026-10-02_22-17-41-36k.onnx   # gimbal_roll_act = 0.25
+# policy-2026-10-04_21-43-00-29k.onnx   # gimbal_roll_act = 0.125
 
 # rosservice call /dragon/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
@@ -106,7 +108,8 @@ rlagent:
     lin_vel: 1.0
     ang_vel: 0.2
     joint_act: 0.15
-    gimbal_act: 0.25
+    gimbal_roll_act: 0.125
+    gimbal_pitch_act: 0.25
     thrust_act: 0.5
     clip_observation: 100.0
     clip_action: 100.0

@@ -25,9 +25,10 @@ h:  halt (force stop motor)
 M:  start tracking (Model-based only)
 O:  (RL only!) enable joint/gimbal control and torque, take off, and start tracking
 K:  (RL only!) land tracking
-o:  disable pause 
-p:  pause tracking
-0:  reset fault
+P:  (RL only!) Gradually turn off rotor
+o:  (RL only!) disable pause
+p:  (RL only!) pause tracking
+
 1-9: set different fault (for testing fault handling)
 
      q           w           e           [
@@ -155,6 +156,7 @@ if __name__=="__main__":
         disable_pause_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'disable_pause_tracking'), Empty, queue_size=1)
         pause_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'pause_tracking'), Empty, queue_size=1)
         land_tracking_pub = rospy.Publisher(topicName(teleop_ns, 'land_tracking'), Empty, queue_size=1)
+        turnoff_rotor_pub = rospy.Publisher(topicName(teleop_ns, 'turnoff_rotor'), Empty, queue_size=1)
         agentFaultRotor_pub = rospy.Publisher(topicName(teleop_ns, 'agentFaultRotor'), UInt32, queue_size=1)
         spinalFaultRotor_pub = rospy.Publisher(topicName(robot_ns, 'spinal_fault_rotor_mask'), UInt32, queue_size=1)
         brake_pub = rospy.Publisher(topicName(teleop_ns, 'brake'), Empty, queue_size=1)
@@ -215,6 +217,9 @@ if __name__=="__main__":
                 if key == 'K':
                         land_tracking_pub.publish(Empty())
                         msg = "===== send land_tracking command ====="
+                if key == 'P':
+                        turnoff_rotor_pub.publish(Empty())
+                        msg = "===== send turn off rotor command ====="
                 if key == 'M':
                         start_tracking_pub.publish(Empty())
                         msg = "===== send start tracking command (Model-based only) ====="

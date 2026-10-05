@@ -175,8 +175,9 @@ action[14:18]  -> paired EDF thrust
 Joint and gimbal actions are converted to position targets:
 
 ```text
-joint_target  = action * scales/joint_act  + joint_default
-gimbal_target = action * scales/gimbal_act + gimbal_default
+joint_target        = action * scales/joint_act        + joint_default
+gimbal_roll_target  = action * scales/gimbal_roll_act  + gimbal_default
+gimbal_pitch_target = action * scales/gimbal_pitch_act + gimbal_default
 ```
 
 When `action_clamp` is true, these scaled position targets are clamped by
