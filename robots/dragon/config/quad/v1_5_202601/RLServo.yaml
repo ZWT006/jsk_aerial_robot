@@ -29,18 +29,24 @@ servo_controller:
     controller2:
       id: 0
       name: joint1_yaw
+      simulation:
+        init_value: 1.57  # for rough_calib
     controller3:
       id: 5
       name: joint2_pitch
     controller4:
       id: 4
       name: joint2_yaw
+      simulation:
+        init_value: 1.57
     controller5:
       id: 9
       name: joint3_pitch
     controller6:
       id: 8
       name: joint3_yaw
+      simulation:
+        init_value: 1.57
 
   gimbals:
     no_real_state: false
