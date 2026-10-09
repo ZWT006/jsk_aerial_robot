@@ -6,6 +6,7 @@ servo_controller:
   servo_feedback_frequency: 200
   servo_target_watchdog: 0.1
   dynamixel_ttl_rs485_mixed: true
+  clamp_joint_position_from_urdf: true
 
   gimbals:
     no_real_state: false
@@ -30,7 +31,7 @@ servo_controller:
     # id is the global index shared by feedback, control, and configuration.
     controller1:
       id: 0
-      mode: MIT
+      mode: CbP
       name: gimbal1
       bus_type: R
       # Dynamixel XM430-W350-R

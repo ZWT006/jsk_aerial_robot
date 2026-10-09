@@ -11,8 +11,8 @@
   <arg name="real_joint_name" default="gimbal1"/>
 
   <arg name="control_freq" default="200"/>
-  <arg name="feedback_delay_step" default="3"/>
-  <arg name="command_delay_step" default="3"/>
+  <arg name="feedback_delay_step" default="2"/>
+  <arg name="command_delay_step" default="2"/>
   <arg name="decimation" default="4"/>
 
   <!-- Dataset preset: PassiveSet (50 s, manually released from +/-0.9 rad).-->
@@ -62,8 +62,8 @@
   <arg name="step_height" default="0.05"/>
  
 
-  <arg name="kp" default="4.8309"/>
-  <arg name="kd" default="0.30755"/>
+  <arg name="kp" default="11.8357"/>   <!-- 4.8309 -->
+  <arg name="kd" default="0.75337"/>  <!-- 0.30755-->
   <arg name="effort_limit" default="6.2"/>
   <arg name="state_timeout" default="0.5"/>
 

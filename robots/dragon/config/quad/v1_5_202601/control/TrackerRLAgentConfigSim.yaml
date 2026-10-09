@@ -33,7 +33,7 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 #   "policy_name: 'policy/policy-2026-10-04_21-43-00-26k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-02_22-17-41-36k.onnx"
+  onnx_model_path: "policy/policy-2026-10-04_21-43-00-29k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -87,10 +87,10 @@ rlagent:
   gimbal_effort_ctrl: true
   thrust_hover: 8.5
   thrust_limit: 16.0
-  thrust_scale: 1.0
+  thrust_scale: 0.88
   # Clamp scaled joint/gimbal targets without changing action_ or last_action.
-  action_clamp: false
-  joint_limit: 3.14
+  action_clamp: true
+  joint_limit: 1.57
   gimbal_roll_limit: 3.14
   gimbal_pitch_limit: 3.14
   joint_target_delay_steps: 0
@@ -108,7 +108,7 @@ rlagent:
     lin_vel: 1.0
     ang_vel: 0.2
     joint_act: 0.15
-    gimbal_roll_act: 0.25
+    gimbal_roll_act: 0.125
     gimbal_pitch_act: 0.25
     thrust_act: 0.5
     clip_observation: 100.0

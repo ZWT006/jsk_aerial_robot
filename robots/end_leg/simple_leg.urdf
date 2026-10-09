@@ -23,8 +23,8 @@
   <joint name="world_to_joint_junction" type="fixed">
     <parent link="world"/>
     <child link="joint_junction_link"/>
-    <!-- <origin xyz="0 0 0.8" rpy="0 1.5707963267948966 0"/> -->
-    <origin xyz="0 0 0.8" rpy="1.5707963267948966 0 0"/>
+    <origin xyz="0 0 0.8" rpy="0 1.5707963267948966 0"/>
+    <!-- <origin xyz="0 0 0.8" rpy="1.5707963267948966 0 0"/> -->
   </joint>
 
   <!-- Root / pitch-joint support -->
