@@ -6,9 +6,12 @@
 //
 // Observation (per policy step, 40 Hz):
 //   [ target: K x (rel_pos(3) + rel_rot6d(6) + target_joint(6)) |
-//     joint_pos(6) | joint_vel(6)*dof_vel (or last_joint_pos) |
-//     gimbal_pos(8) | gimbal_vel(8)*dof_vel (or last_gimbal_pos) |
-//     root_rot6d(6) | lin_vel_b(3)*lin_vel | ang_vel_b(3)*ang_vel | last_action(18) ]
+//     joint_pos(6) | joint_vel(6)*dof_vel (or (pos - last_pos)*dof_delta) |
+//     gimbal_pos(8) | gimbal_vel(8)*dof_vel (or (pos - last_pos)*dof_delta) |
+//     root_rot6d(6) | lin_vel_b(3)*lin_vel | ang_vel_b(3)*ang_vel |
+//     last_action(18) (raw, or per-group action scale when scaled_last_action) |
+//     history: history_length x history_terms frames [t-1, ..., t-H] (optional) ]
+// Scales/flags come from the YAML, overridden by the ONNX "dragon_cfg" metadata if present.
 // Action: [ joint(6)*joint_act | gimbal(8)*roll/pitch_act | paired per-EDF thrust(4)*thrust_act + hover ]
 //
 
@@ -18,6 +21,7 @@
 #include <tf/transform_datatypes.h>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <limits>
 #include <sstream>
@@ -124,6 +128,110 @@ std::string gimbalShortName(const std::string& name)
   return "G" + std::string(1, axis) + std::to_string(id);
 }
 
+// Minimal reader for the "dragon_cfg" ONNX metadata JSON: flattens nested objects into
+// dotted keys ("obs_scales.ang_vel") holding the scalar literal text. Arrays unsupported.
+class FlatJsonParser
+{
+public:
+  explicit FlatJsonParser(const std::string& text) : s_(text) {}
+
+  bool parse(std::map<std::string, std::string>& out)
+  {
+    out_ = &out;
+    pos_ = 0;
+    skipWs();
+    if (!parseObject("")) return false;
+    skipWs();
+    return pos_ == s_.size();
+  }
+
+private:
+  bool atEnd() const { return pos_ >= s_.size(); }
+
+  void skipWs()
+  {
+    while (!atEnd() && std::isspace(static_cast<unsigned char>(s_[pos_]))) ++pos_;
+  }
+
+  bool parseString(std::string& out)
+  {
+    if (atEnd() || s_[pos_] != '"') return false;
+    ++pos_;
+    out.clear();
+    while (!atEnd() && s_[pos_] != '"')
+      {
+        if (s_[pos_] == '\\' && pos_ + 1 < s_.size()) ++pos_;
+        out.push_back(s_[pos_++]);
+      }
+    if (atEnd()) return false;
+    ++pos_;
+    return true;
+  }
+
+  bool parseObject(const std::string& prefix)
+  {
+    if (atEnd() || s_[pos_] != '{') return false;
+    ++pos_;
+    skipWs();
+    if (!atEnd() && s_[pos_] == '}') { ++pos_; return true; }
+    while (true)
+      {
+        skipWs();
+        std::string key;
+        if (!parseString(key)) return false;
+        skipWs();
+        if (atEnd() || s_[pos_] != ':') return false;
+        ++pos_;
+        skipWs();
+        if (atEnd()) return false;
+        const std::string full_key = prefix.empty() ? key : prefix + "." + key;
+        if (s_[pos_] == '{')
+          {
+            if (!parseObject(full_key)) return false;
+          }
+        else if (s_[pos_] == '"')
+          {
+            std::string value;
+            if (!parseString(value)) return false;
+            (*out_)[full_key] = value;
+          }
+        else
+          {
+            const size_t start = pos_;
+            while (!atEnd() && s_[pos_] != ',' && s_[pos_] != '}' &&
+                   !std::isspace(static_cast<unsigned char>(s_[pos_])))
+              ++pos_;
+            if (pos_ == start || s_[start] == '[') return false;
+            (*out_)[full_key] = s_.substr(start, pos_ - start);
+          }
+        skipWs();
+        if (atEnd()) return false;
+        if (s_[pos_] == ',') { ++pos_; continue; }
+        if (s_[pos_] == '}') { ++pos_; return true; }
+        return false;
+      }
+  }
+
+  const std::string& s_;
+  size_t pos_ = 0;
+  std::map<std::string, std::string>* out_ = nullptr;
+};
+
+// numeric (or true/false -> 1/0) value of a flattened metadata key
+bool metaNumber(const std::map<std::string, std::string>& meta, const std::string& key,
+                double& value)
+{
+  auto it = meta.find(key);
+  if (it == meta.end()) return false;
+  if (it->second == "true") { value = 1.0; return true; }
+  if (it->second == "false") { value = 0.0; return true; }
+  char* end = nullptr;
+  const double v = std::strtod(it->second.c_str(), &end);
+  if (end == it->second.c_str() || *end != '\0') return false;
+  value = v;
+  return true;
+}
+
 }  // namespace
 
 namespace aerial_robot_control
@@ -166,6 +274,7 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<bool>(rl_nh, "ideal_ang_vel_obs", ideal_ang_vel_obs_, true);
   getParam<bool>(rl_nh, "replace_dof_vel_with_last_pos",
                  replace_dof_vel_with_last_pos_, false);
+  getParam<bool>(rl_nh, "scaled_last_action", scaled_last_action_, false);
   getParam<std::string>(rl_nh, "ideal_obs_topic", ideal_obs_topic_, "uav/baselink/odom");
   getParam<int>(rl_nh, "ideal_delay", ideal_delay_, 0);
   ideal_delay_ = std::max(0, ideal_delay_);
@@ -267,6 +376,13 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
           return;
         }
     }
+  // Optional scales; 1.0 keeps the behaviour of policies trained before they existed.
+  for (const auto& key : {"dof_delta", "thrust_obs"})
+    if (scales_.find(key) == scales_.end())
+      {
+        ROS_WARN("[RL-Tracker] Scale '%s' not set, using 1.0.", key);
+        scales_[key] = 1.0;
+      }
   if (!buildGimbalActionScales(scales_["gimbal_roll_act"], scales_["gimbal_pitch_act"],
                                gimbal_action_scales_))
     return;
@@ -285,6 +401,12 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                                                       tf::Quaternion(0, 0, 0, 1),
                                                       std::vector<double>(joint_size_, 0.0)});
 
+  // YAML baseline; the policy metadata (if any) overrides it in applyPolicyConfig()
+  yaml_scales_ = scales_;
+  yaml_replace_dof_vel_with_last_pos_ = replace_dof_vel_with_last_pos_;
+  yaml_scaled_last_action_ = scaled_last_action_;
+  yaml_thrust_hover_ = thrust_hover_;
+
   // ONNX runtime
   if (verbose_) ROS_INFO("[RL-Tracker] Loading agent model......");
   try
@@ -296,6 +418,7 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
       ROS_ERROR("[RL-Tracker] Failed to load ONNX model %s: %s", onnx_model_path.c_str(), e.what());
       return;
     }
+  if (!applyPolicyConfig()) return;
 
   size_t expected_action = 0;
   for (const auto& group : action_groups_)
@@ -306,21 +429,16 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                 action_size_, expected_action);
       return;
     }
+  // obs = obs_terms (current step) | history_length x history_terms ([t-1, ..., t-H])
   single_obs_size_ = 0;
   for (const auto& term : history_terms_) single_obs_size_ += static_cast<int>(obsTermDim(term));
-  if (!history_terms_.empty())
-    {
-      history_observations_.assign(history_length_,
-                                   std::vector<float>(single_obs_size_, 0.0f));
-    }
+  history_observations_.clear();
+  history_initialized_ = false;
 
   size_t expected_obs = 0;
-  for (const auto& term : obs_terms_)
-    {
-      const size_t dim = obsTermDim(term);
-      const bool in_history = std::find(history_terms_.begin(), history_terms_.end(), term) != history_terms_.end();
-      expected_obs += in_history ? dim * static_cast<size_t>(history_length_) : dim;
-    }
+  for (const auto& term : obs_terms_) expected_obs += obsTermDim(term);
+  if (!history_terms_.empty())
+    expected_obs += static_cast<size_t>(single_obs_size_) * static_cast<size_t>(history_length_);
   if (obs_size_ != expected_obs)
     {
       ROS_ERROR("[RL-Tracker] ONNX obs size (%zu) != configured observations size (%zu)! "
@@ -328,6 +446,7 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
                 obs_size_, expected_obs);
       return;
     }
+  if (!checkPolicyLayout()) return;
 
   // ROS I/O
   joint_state_sub_ = nh_.subscribe("joint_states", 1, &DragonTrackerRLAgent::jointStateCallback, this);
@@ -407,6 +526,133 @@ void DragonTrackerRLAgent::initRLAgent(std::string model_path)
   observation_.assign(obs_size_, 0.0f);
   action_.assign(action_size_, 0.0f);
   last_action_.assign(action_size_, 0.0f);
+  last_action_obs_.assign(action_size_, 0.0f);
+  readPolicyMetadata();
+}
+
+void DragonTrackerRLAgent::readPolicyMetadata()
+{
+  policy_meta_.clear();
+  Ort::ModelMetadata metadata = session_->GetModelMetadata();
+  Ort::AllocatedStringPtr cfg = metadata.LookupCustomMetadataMapAllocated("dragon_cfg", allocator_);
+  if (!cfg)
+    {
+      ROS_WARN("[RL-Tracker] Policy has no 'dragon_cfg' metadata; using YAML scales only.");
+      return;
+    }
+  const std::string text(cfg.get());
+  if (!FlatJsonParser(text).parse(policy_meta_))
+    {
+      policy_meta_.clear();
+      ROS_ERROR("[RL-Tracker] Failed to parse 'dragon_cfg' metadata; using YAML scales only: %s",
+                text.c_str());
+      return;
+    }
+  ROS_INFO("[RL-Tracker] Policy metadata 'dragon_cfg':");
+  for (const auto& kv : policy_meta_)
+    ROS_INFO("[RL-Tracker]   %-36s = %s", kv.first.c_str(), kv.second.c_str());
+}
+
+bool DragonTrackerRLAgent::applyPolicyConfig()
+{
+  scales_ = yaml_scales_;
+  const bool old_replace_dof_vel_with_last_pos = replace_dof_vel_with_last_pos_;
+  replace_dof_vel_with_last_pos_ = yaml_replace_dof_vel_with_last_pos_;
+  scaled_last_action_ = yaml_scaled_last_action_;
+  thrust_hover_ = yaml_thrust_hover_;
+
+  if (!policy_meta_.empty())
+    {
+      auto override_value = [this](const std::string& meta_key, const std::string& name,
+                                   double& target) {
+        double v = 0.0;
+        if (!metaNumber(policy_meta_, meta_key, v)) return;
+        if (std::fabs(v - target) > 1e-9)
+          ROS_WARN("[RL-Tracker] '%s': YAML %g -> policy metadata %g", name.c_str(), target, v);
+        target = v;
+      };
+      const std::vector<std::pair<std::string, std::string>> scale_keys = {
+        {"obs_scales.ang_vel", "ang_vel"},
+        {"obs_scales.lin_vel", "lin_vel"},
+        {"obs_scales.dof_vel", "dof_vel"},
+        {"obs_scales.dof_delta", "dof_delta"},
+        {"obs_scales.thrust", "thrust_obs"},
+        {"action_scales.joint_act", "joint_act"},
+        {"action_scales.gimbal_roll_act", "gimbal_roll_act"},
+        {"action_scales.gimbal_pitch_act", "gimbal_pitch_act"},
+        {"action_scales.thrust_act", "thrust_act"},
+      };
+      for (const auto& key : scale_keys)
+        override_value(key.first, key.second, scales_[key.second]);
+      override_value("action_scales.thrust_hover", "thrust_hover", thrust_hover_);
+
+      double replace = replace_dof_vel_with_last_pos_ ? 1.0 : 0.0;
+      double scaled = scaled_last_action_ ? 1.0 : 0.0;
+      override_value("replace_dof_vel_with_last_pos", "replace_dof_vel_with_last_pos", replace);
+      override_value("scaled_last_action", "scaled_last_action", scaled);
+      replace_dof_vel_with_last_pos_ = replace > 0.5;
+      scaled_last_action_ = scaled > 0.5;
+    }
+
+  if (replace_dof_vel_with_last_pos_ != old_replace_dof_vel_with_last_pos)
+    last_dof_pos_initialized_ = false;
+  if (!buildGimbalActionScales(scales_["gimbal_roll_act"], scales_["gimbal_pitch_act"],
+                               gimbal_action_scales_))
+    return false;
+  updateLastActionObs();
+
+  ROS_INFO("[RL-Tracker] Effective config (%s): dof_vel=%g dof_delta=%g lin_vel=%g ang_vel=%g "
+           "thrust_obs=%g | joint_act=%g gimbal_roll_act=%g gimbal_pitch_act=%g thrust_act=%g "
+           "thrust_hover=%g | replace_dof_vel_with_last_pos=%d scaled_last_action=%d",
+           policy_meta_.empty() ? "YAML" : "policy metadata",
+           scales_["dof_vel"], scales_["dof_delta"], scales_["lin_vel"], scales_["ang_vel"],
+           scales_["thrust_obs"], scales_["joint_act"], scales_["gimbal_roll_act"],
+           scales_["gimbal_pitch_act"], scales_["thrust_act"], thrust_hover_,
+           replace_dof_vel_with_last_pos_, scaled_last_action_);
+  return true;
+}
+
+bool DragonTrackerRLAgent::checkPolicyLayout() const
+{
+  if (policy_meta_.empty()) return true;
+  bool ok = true;
+  double v = 0.0;
+  if (metaNumber(policy_meta_, "observation_dim", v) && static_cast<size_t>(v) != obs_size_)
+    {
+      ROS_ERROR("[RL-Tracker] metadata observation_dim (%g) != ONNX input size (%zu)!", v, obs_size_);
+      ok = false;
+    }
+  if (metaNumber(policy_meta_, "action_dim", v) && static_cast<size_t>(v) != action_size_)
+    {
+      ROS_ERROR("[RL-Tracker] metadata action_dim (%g) != ONNX output size (%zu)!", v, action_size_);
+      ok = false;
+    }
+  if (metaNumber(policy_meta_, "history_mode", v))
+    {
+      const bool history_mode = v > 0.5;
+      double history_len = 0.0;
+      metaNumber(policy_meta_, "obs_history_len", history_len);
+      if (history_mode != !history_terms_.empty())
+        {
+          ROS_ERROR("[RL-Tracker] metadata history_mode=%d but YAML history_terms is %s!",
+                    history_mode, history_terms_.empty() ? "empty" : "set");
+          ok = false;
+        }
+      else if (history_mode && static_cast<int>(history_len) != history_length_)
+        {
+          ROS_ERROR("[RL-Tracker] metadata obs_history_len (%g) != YAML history_length (%d)!",
+                    history_len, history_length_);
+          ok = false;
+        }
+    }
+  if (metaNumber(policy_meta_, "step_dt", v))
+    {
+      const double policy_dt = ctrl_loop_du_ * decimation_;
+      if (std::fabs(policy_dt - v) > 1e-3)
+        ROS_WARN("[RL-Tracker] Policy step %.4f s (ctrl_loop_du %.4f x decimation %d) != "
+                 "training step_dt %.4f s!", policy_dt, ctrl_loop_du_, decimation_, v);
+    }
+  return ok;
 }
 
 void DragonTrackerRLAgent::updateReference()
@@ -567,6 +813,7 @@ void DragonTrackerRLAgent::reset()
   tracking_ = false;
   catch_obs_ = false;
   last_dof_pos_initialized_ = false;
+  history_initialized_ = false;
   target_joint_list_.clear();
   target_gimbal_list_.clear();
   target_thrust_list_.clear();
@@ -592,7 +839,31 @@ void DragonTrackerRLAgent::seedActionFromState()
   for (int i = 0; i < pair_size_; ++i)
     action_[joint_size_ + gimbal_size_ + i] = -thrust_hover_ / scales_["thrust_act"];
   last_action_ = action_;
+  updateLastActionObs();
   action_seeded_ = joint_catch_ && gimbal_catch_;
+}
+
+void DragonTrackerRLAgent::updateLastActionObs()
+{
+  last_action_obs_ = last_action_;
+  if (!scaled_last_action_) return;
+  // per-group action scale only: no default pos / hover offset (matches training)
+  const double thrust_obs_scale = scales_["thrust_act"] * scales_["thrust_obs"];
+  size_t offset = 0;
+  for (const auto& group : action_groups_)
+    {
+      const size_t dim = actionGroupDim(group);
+      if (offset + dim > last_action_obs_.size()) break;
+      for (size_t i = 0; i < dim; ++i)
+        {
+          double scale = 1.0;
+          if (group == "joint") scale = scales_["joint_act"];
+          else if (group == "gimbal") scale = gimbal_action_scales_[i];
+          else if (group == "thrust") scale = thrust_obs_scale;
+          last_action_obs_[offset + i] = static_cast<float>(last_action_obs_[offset + i] * scale);
+        }
+      offset += dim;
+    }
 }
 
 bool DragonTrackerRLAgent::usesIdealObservationSource() const
@@ -714,23 +985,18 @@ void DragonTrackerRLAgent::buildObservation()
   // ---- assemble observation according to the YAML term list ----
   std::vector<float> obs;
   obs.reserve(obs_size_);
+  // training layout: target | current(t) | history[t-1, ..., t-H]
+  for (const auto& term : obs_terms_) appendObsTerm(term, obs);
+  std::vector<float> current_history_obs;
   if (!history_terms_.empty())
     {
-      std::vector<float> current_history_obs;
       current_history_obs.reserve(single_obs_size_);
       for (const auto& term : history_terms_) appendObsTerm(term, current_history_obs);
-      for (int k = history_length_ - 1; k > 0; --k)
-        history_observations_[k] = history_observations_[k - 1];
-      history_observations_[0] = current_history_obs;
+      // like the training reset: every past slot starts as the first (reset) frame
+      if (!history_initialized_)
+        history_observations_.assign(history_length_, current_history_obs);
       for (const auto& history_obs : history_observations_)
         obs.insert(obs.end(), history_obs.begin(), history_obs.end());
-      for (const auto& term : obs_terms_)
-        if (std::find(history_terms_.begin(), history_terms_.end(), term) == history_terms_.end())
-          appendObsTerm(term, obs);
-    }
-  else
-    {
-      for (const auto& term : obs_terms_) appendObsTerm(term, obs);
     }
 
   if (obs.size() != obs_size_)
@@ -742,6 +1008,15 @@ void DragonTrackerRLAgent::buildObservation()
     }
   observation_ = std::move(obs);
   catch_obs_ = true;
+
+  // push frame t only after it was fed as "current", so the next step sees it as t-1
+  if (!history_terms_.empty())
+    {
+      for (int k = history_length_ - 1; k > 0; --k)
+        history_observations_[k] = history_observations_[k - 1];
+      history_observations_[0] = std::move(current_history_obs);
+      history_initialized_ = true;
+    }
 
   // Advance the position history only after a complete observation has been
   // accepted. Thus every replacement slot refers to the preceding policy step,
@@ -815,7 +1090,7 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     {
       if (replace_dof_vel_with_last_pos_)
         for (int i = 0; i < joint_size_; ++i)
-          out.push_back(joint_pos_[i] -last_joint_pos_[i]);
+          out.push_back((joint_pos_[i] - last_joint_pos_[i]) * scales_["dof_delta"]);
       else
         for (int i = 0; i < joint_size_; ++i)
           out.push_back(joint_vel_[i] * scales_["dof_vel"]);
@@ -828,7 +1103,7 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     {
       if (replace_dof_vel_with_last_pos_)
         for (int i = 0; i < gimbal_size_; ++i)
-          out.push_back(gimbal_pos_[i] - last_gimbal_pos_[i]);
+          out.push_back((gimbal_pos_[i] - last_gimbal_pos_[i]) * scales_["dof_delta"]);
       else
         for (int i = 0; i < gimbal_size_; ++i)
           out.push_back(gimbal_vel_[i] * scales_["dof_vel"]);
@@ -853,7 +1128,7 @@ void DragonTrackerRLAgent::appendObsTerm(const std::string& term, std::vector<fl
     }
   else if (term == "last_action")
     {
-      out.insert(out.end(), last_action_.begin(), last_action_.end());
+      out.insert(out.end(), last_action_obs_.begin(), last_action_obs_.end());
     }
   else
     {
@@ -1205,6 +1480,7 @@ void DragonTrackerRLAgent::sendCmd()
 {
   std::lock_guard<std::mutex> lock(data_mutex_);
   last_action_ = action_;
+  updateLastActionObs();
 
   ros::Time now = ros::Time::now();
   joint_cmd_.header.stamp = now;
@@ -1497,8 +1773,17 @@ bool DragonTrackerRLAgent::reloadPolicyCallback(aerial_robot_model::ReloadPolicy
       ROS_ERROR("[RL-Tracker] %s", res.message.c_str());
       return true;
     }
+  if (!applyPolicyConfig() || !checkPolicyLayout())
+    {
+      res.success = false;
+      res.message = "New policy config/metadata is inconsistent with YAML (see log)!";
+      ROS_ERROR("[RL-Tracker] %s", res.message.c_str());
+      return true;
+    }
 
   catch_obs_ = false;
+  last_dof_pos_initialized_ = false;
+  history_initialized_ = false;
   seedActionFromState();
 
   res.success = true;
@@ -1523,12 +1808,17 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
   getParam<bool>(rl_nh, "rlagent_verbose", verbose_, verbose_);
   getParam<bool>(rl_nh, "rlagent_debug", debug_, debug_);
   getParam<bool>(rl_nh, "rlagent_forward_info", forward_info_, forward_info_);
-  const bool old_replace_dof_vel_with_last_pos = replace_dof_vel_with_last_pos_;
+  // YAML baseline; the loaded policy's metadata still takes precedence
   getParam<bool>(rl_nh, "replace_dof_vel_with_last_pos",
-                 replace_dof_vel_with_last_pos_, replace_dof_vel_with_last_pos_);
-  if (replace_dof_vel_with_last_pos_ != old_replace_dof_vel_with_last_pos)
-    last_dof_pos_initialized_ = false;
-  getParam<double>(rl_nh, "thrust_hover", thrust_hover_, thrust_hover_);
+                 yaml_replace_dof_vel_with_last_pos_, yaml_replace_dof_vel_with_last_pos_);
+  getParam<bool>(rl_nh, "scaled_last_action", yaml_scaled_last_action_, yaml_scaled_last_action_);
+  getParam<double>(rl_nh, "thrust_hover", yaml_thrust_hover_, yaml_thrust_hover_);
+  if (!applyPolicyConfig())
+    {
+      res.success = false;
+      res.message = "Failed to apply policy config (see log).";
+      return true;
+    }
   getParam<double>(rl_nh, "thrust_limit", thrust_limit_, thrust_limit_);
   getParam<double>(rl_nh, "joint_limit", joint_limit_, joint_limit_);
 
@@ -1575,6 +1865,7 @@ bool DragonTrackerRLAgent::reloadParamsCallback(std_srvs::Trigger::Request& /*re
                 " action_clamp=" + std::to_string(action_clamp_) +
                 " replace_dof_vel_with_last_pos=" +
                 std::to_string(replace_dof_vel_with_last_pos_) +
+                " scaled_last_action=" + std::to_string(scaled_last_action_) +
                 " thrust_scale=" + std::to_string(thrust_scale_default_) +
                 " joint_limit=" + std::to_string(joint_limit_) +
                 " gimbal_roll_limit=" + std::to_string(gimbal_roll_limit_) +

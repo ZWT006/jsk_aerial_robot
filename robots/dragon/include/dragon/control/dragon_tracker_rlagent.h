@@ -75,6 +75,12 @@ namespace aerial_robot_control
 
     // ----------- RL agent -----------
     void initRLAgent(std::string model_path);
+    // Read and print the "dragon_cfg" ONNX metadata written by the training export.
+    void readPolicyMetadata();
+    // Effective config = YAML baseline overridden by the policy metadata (if any).
+    bool applyPolicyConfig();
+    // Check obs/action dims, history layout and step dt against the policy metadata.
+    bool checkPolicyLayout() const;
     bool usesIdealObservationSource() const;
     void configureIdealObservationSubscriber();
     void buildObservation();
@@ -100,6 +106,8 @@ namespace aerial_robot_control
     // Keeps the first commands holding the current configuration instead of snapping
     // the joints to zero. Caller must hold data_mutex_.
     void seedActionFromState();
+    // Refresh last_action_obs_ from last_action_ (training: _aars_scale_actions_for_observation).
+    void updateLastActionObs();
 
     // ----------- ROS callbacks -----------
     void jointStateCallback(const sensor_msgs::JointState::ConstPtr& msg);
@@ -190,7 +198,10 @@ namespace aerial_robot_control
 
     // ----------- observation / action -----------
     std::vector<float> observation_;
+    // Past history-term frames [t-1, ..., t-H], appended after the obs_terms (training:
+    // target | current(t) | history). Seeded with the first frame after reset/reload.
     std::vector<std::vector<float>> history_observations_;
+    bool history_initialized_ = false;
     int history_length_ = 1;
     int single_obs_size_ = 0;
     std::vector<std::string> target_obs_terms_;
@@ -199,10 +210,22 @@ namespace aerial_robot_control
     std::vector<std::string> action_groups_;
     std::vector<float> action_;
     std::vector<float> last_action_;
+    // last_action as fed to the policy: raw, or scaled per group when scaled_last_action_
+    // (joint*joint_act | gimbal*roll/pitch_act | thrust*thrust_act*thrust_obs, no default/hover)
+    std::vector<float> last_action_obs_;
+    bool scaled_last_action_ = false;
     size_t obs_size_ = 0;
     size_t action_size_ = 0;
     bool catch_obs_ = false;
     std::map<std::string, double> scales_;
+    // flattened "dragon_cfg" ONNX metadata (e.g. "obs_scales.ang_vel" -> "1.0");
+    // empty for policies exported without it
+    std::map<std::string, std::string> policy_meta_;
+    // YAML values, restored before applying the metadata of each loaded policy
+    std::map<std::string, double> yaml_scales_;
+    bool yaml_replace_dof_vel_with_last_pos_ = false;
+    bool yaml_scaled_last_action_ = false;
+    double yaml_thrust_hover_ = 8.5;
 
     int step_count_ = 0;
     int decimation_ = 1;   // main loop 40 Hz == policy rate -> 1

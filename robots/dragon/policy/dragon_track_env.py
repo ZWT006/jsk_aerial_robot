@@ -5,9 +5,11 @@
 
 from __future__ import annotations
 
+import csv
 import math
+import os
 from collections.abc import Sequence
-from shlex import join
+
 from aerial_lab.utility.aerialutility import print_training_config
 import gymnasium as gym
 import isaaclab.envs.mdp as mdp
@@ -15,6 +17,7 @@ import aerial_lab.tasks.manager_based.velocity.mdp.rewards as LocomotionVelRewar
 import isaaclab.sim as sim_utils
 import torch
 from aerial_lab.utility.delaymodel import DelayModel, DelayModelCfg
+from aerial_lab.utility.estimatormodel import DragonStateEstimatorModel, DragonStateEstimatorModelCfg
 from aerial_lab.utility.utilitymath import (
     degradeSymmetryQuatwithoutTilt,
     sampleCenterQuatwithTilt,
@@ -58,7 +61,7 @@ from isaaclab.utils.math import (
 
 from aerial_lab.assets import ISAACLAB_ASSETS_DATA_DIR  # isort: skip
 from aerial_lab.assets.aerialrobot import DRAGON_CFG  # isort: skip
-from aerial_lab.tasks.direct.dragon.motion_loader import DragonMotion  # isort: skip
+from aerial_lab.tasks.direct.dragon.motion_loader import DragonMotion, DragonMotionLibrary  # isort: skip
 from isaaclab.markers import CUBOID_MARKER_CFG, BLUE_ARROW_X_MARKER_CFG  # isort: skip
 from aerial_lab.actuators.rotorgroup import RotorGroup  # isort: skip
 from aerial_lab.utility.noisemodel import NoiseModel  # isort: skip
@@ -157,12 +160,12 @@ TRACK_ENDS_FRAME_STRIDE = 4
 
 
 # TODO Lists:
-# 0. Random joint reset with analytical gimbal
-# 1. Ground Effects
-# 2. Aerodynamics Interference
-# 3. DR on rotor Pose
-# 4. Try history observation
-# 5. External disturbance on links
+# [x] 0. Random joint reset with analytical gimbal
+# [x] 1. Ground Effects
+# [x] 2. Aerodynamics Interference
+# 3. ~DR on rotor Pose~
+# 4. ~Try history observation~
+# [x] 5. External disturbance on links
 
 @configclass
 class EventCfg:
@@ -188,22 +191,6 @@ class EventCfg:
         },
     )
 
-    # interval
-    # push_robot = EventTerm(
-    #     func=mdp.push_by_setting_velocity,
-    #     mode="interval",
-    #     interval_range_s=(1.0, 9.0),
-    #     params={
-    #         "velocity_range": {
-    #             "x": (-PUSH_LIN_VEL, PUSH_LIN_VEL),
-    #             "y": (-PUSH_LIN_VEL, PUSH_LIN_VEL),
-    #             "z": (-PUSH_LIN_VEL, PUSH_LIN_VEL),
-    #             "roll": (-PUSH_ANG_VEL, PUSH_ANG_VEL),
-    #             "pitch": (-PUSH_ANG_VEL, PUSH_ANG_VEL),
-    #             "yaw": (-PUSH_ANG_VEL, PUSH_ANG_VEL),
-    #         }
-    #     },
-    # )
 
 
 @configclass
@@ -218,13 +205,17 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     play_mode = False
     evaluate_mode = False
     resume_mode = False
-    resume_step_count = 9500 * num_steps_per_env
+    resume_step_count = 4000 * num_steps_per_env
     add_noise = True
     add_delay = True
     add_randomization = True
+    use_state_estimator = True  # EKF delay and scale
+    decrease_rotor_thrust = True  # scale real rotor output by U(rotor_thrust_scale), sampled per pair on reset
+    rotor_thrust_scale = [0.9, 0.95]
     training_view = True
     if play_mode or evaluate_mode:
         training_view = True
+    replace_dof_vel_with_last_pos = True
 
     # # #### Robot parameters ########################################
     robot_mass = 7.0  # kg, w/o battery
@@ -237,15 +228,33 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     action_space = joint_num + gimbal_num + paired_rotor_num
 
     # # #### Reference-motion tracking ##############################
-    # target trajectory clip (single .npz): drives the tracking task and RSI base/joint state.
+    # Primary target trajectory clip: drives Stage 1 tracking.
     # Only needs body pose/twist + the joint_num link-joint positions (no gimbal / rotor thrust);
     # see motion_loader.DragonMotion for the format.
-    demo_file = f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-dragon-target-117s.npz"
+    demo_file = f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-dragon-move-target-192s.npz"
+    # Evaluation uses one explicitly configured clip. Its timeline holds the first frame for
+    # evaluation_hold_time_s, plays the clip forward once, then holds the last frame for the same
+    # duration. Change this path directly when evaluating another trajectory.
+    evaluation_demo_file = f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/evl-amp-Yaw-L.npz"
+    evaluation_hold_time_s = 10.0
+    # Stage 2 target expansion. Before the switch step every env uses `demo_file` exactly as in
+    # Stage 1. Afterwards, each resetting env samples one trajectory for its whole episode with
+    # probability num_frames_i / total_num_frames. This list is the complete Stage 2 target pool;
+    # `demo_file` is listed explicitly rather than being injected by the environment.
+    multi_trajectory_switch_stage = True
+    multi_trajectory_switch_step_count = 20000 * num_steps_per_env
+    multi_trajectory_demo_files = [
+        f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-dragon-move-target-192s.npz",
+        f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/dragon-demo.npz",
+        f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-Instability.npz",
+        # f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-Pitch-L.npz",
+        f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-Yaw-L.npz",
+    ]
     # AMP expert clip (single .npz): the dynamically-feasible "real" state trajectory (optimal-control
     # solution of `demo_file`), storing body pose/twist + all 14 joints (6 link + 8 gimbal) + rotor
     # thrust. Only the AMP env uses it (as the discriminator's expert motion), decoupled from the
     # tracking target -- AMP is unpaired, so the two clips need not be frame-aligned or equal length.
-    amp_demo_file = f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-dragon-real-smo-super.npz"
+    amp_demo_file = f"{ISAACLAB_ASSETS_DATA_DIR}/Robots/dragon/trajectory/amp-dragon-move-real-filter1Hz-Average1s.npz"
     # number of future reference frames fed to the policy (the K-step look-ahead horizon)
     track_horizon = 5
     # spacing between consecutive look-ahead frames, expressed in control steps
@@ -267,8 +276,9 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     # source rule as gimbal above), False -> hover thrust. Same fail-loud behaviour when the source
     # clip lacks rotor_thrust.
     thrust_init_from_demo = True
-    # toggle history block in the observation (past proprioceptive frames)
-    history_mode = False  # include past current-obs frames in the observation
+    # Past current-observation frames ordered [t-1, ..., t-H]. At reset, all slots use the
+    # clean reset frame constructed in _reset_idx.
+    history_mode = False
     obs_history_len = 3
 
     # # #### Observation / state layout ############################
@@ -280,10 +290,10 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     #   joint pos (joint_num) + joint vel (joint_num) + gimbal pos (gimbal_num)
     #   + base rotation 6D (6) + linear velocity (3) + angular velocity (3) + last action (action_space)
     current_obs_len = joint_num + joint_num + gimbal_num + gimbal_num + 6 + 3 + 3 + action_space
-    # history obs : `obs_history_len` past `current_obs` frames (only when history_mode is on).
+    # history obs : `obs_history_len` past `current_obs` frames, [t-1, ..., t-H].
     single_obs_len = current_obs_len  # one history unit
     history_obs_len = obs_history_len * single_obs_len if history_mode else 0
-    # policy observation = target | current | history | last action
+    # policy observation = target | current | history; current already contains the last action.
     observation_space = target_obs_len + current_obs_len + history_obs_len
     # critic state = current | target | last action + privileged rotor thrust/torque (rotor_num * 2)
     state_space = current_obs_len + target_obs_len + rotor_num * 2
@@ -294,13 +304,13 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     # thrust uses the paired representation (one value per rotor pair): the policy commands and the
     # demo split each apply an identical value to a pair's two rotors, so the per-rotor form would be
     # exactly duplicated -- the paired form is lossless here and matches the 4-dim action space.
-    single_amp_obs_len = 3 + 3 + 6 + joint_num + gimbal_num + paired_rotor_num
+    single_amp_obs_len = 3 + 3 + 6 + joint_num + gimbal_num
     amp_observation_space = amp_obs_history_len * single_amp_obs_len
 
     # # #### Model parameters
     # # Actuator parameters ########################################
     thrust_to_torque_ratio = -0.0165  # -0.0165
-    thrust_limit_max = 16.0  # N
+    thrust_limit_max = 14.5  # N
     rotor_direction_cfg = {"edf.*_left": 1, "edf.*_right": -1}
     contact_force_threshold = 100.0  # N wouldn't trigger terminaton in lide-down state, but can detect hard contact
     contact_velocity_threshold = 1.0  # m/s, can detect hard contact with low false positive in normal flight
@@ -313,6 +323,11 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     joint_track_termination_threshold = 1.0
     position_track_termination_threshold = 0.5  # m, L2 norm over xyz position error
     orientation_track_termination_threshold = math.pi * 0.2  # rad, L2 norm over 6D rotation error
+    # Stable-training diagnostics: once the mean episode length for the current done batch is above
+    # this threshold, write one CSV row for each early-terminated env from _get_dones().
+    early_termination_csv_enabled = False
+    early_termination_csv_filename = "early_termination_causes.csv"
+    early_termination_csv_min_mean_episode_length = 400.0
 
     rotorCfg = {
         "rotor_num": gimbal_num,
@@ -321,6 +336,7 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
         "thrust_coeff": 1.0,
         "torque_coeff": thrust_to_torque_ratio,
         "randomize_ratio": 0.0,  # 3% thrust/torque randomization, scale
+        "thrust_scale": rotor_thrust_scale if decrease_rotor_thrust else [1.0, 1.0],
         "max_vel": 1000.0,
         "max_foc": thrust_limit_max,
         "vel_wn": 1.0,
@@ -353,9 +369,10 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
 
     class normalization:
         class obs_scales:
-            ang_vel = 0.2
+            ang_vel = 1.0
             lin_vel = 1.0
             dof_vel = 0.5
+            dof_delta = 10.0
             torque = 5.0
             thrust = 0.1
 
@@ -372,12 +389,12 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
         # one unit of policy output commands ~25% of each actuator's max torque -> uniform
         # per-actuator authority. MUST be kept consistent with the kp set in DRAGON_CFG; changing
         # the actuator stiffness without updating these scales causes torque saturation.
-        joint_action_scale = 0.25         # XM430-W350: 0.25*4.1/51.5 => 2:1 gear ratio
+        joint_action_scale = 0.15         # XM430-W350: 0.25*4.1/51.5 => 2:1 gear ratio
         gimbal_pitch_action_scale = 0.25   # XC330-T181: 0.25*0.76/0.593
-        gimbal_roll_action_scale = 0.25   # XM430-W210: 0.25*3.0/19.6
+        gimbal_roll_action_scale = 0.125   # XM430-W210: 0.25*3.0/19.6
         thrust_action_scale = 0.5  # - 7 ~ 7  => 14
 
-        thrust_limit = 15.0  # N
+        thrust_limit = 14.5  # N
         thrust_hover = 8.5  # N
 
         # Joint  00 - ID: 00, Name: joint1_yaw, Default: 1.5600 rad, Limit: [-1.5708, 1.5708] rad
@@ -424,8 +441,8 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
         dof_pos_limit = {
             "gimbal_lower": -math.pi,
             "gimbal_upper": math.pi,
-            "joint_lower": -math.pi * 0.48,
-            "joint_upper": math.pi * 0.48,
+            "joint_lower": -math.pi * 0.5,
+            "joint_upper": math.pi * 0.5,
         }
     control.thrust_limit = thrust_limit_max
 
@@ -478,8 +495,8 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     # disables it (the env then behaves exactly as before).
     static_hover_mode = True
     static_hover_step_start = 0
-    static_hover_step_end = 1000 * num_steps_per_env
-    static_hover_rate_start = 0.6   # fraction of static-hover envs early in training
+    static_hover_step_end = 5000 * num_steps_per_env
+    static_hover_rate_start = 0.5   # fraction of static-hover envs early in training
     static_hover_rate_end = 0.0    # fraction after step_end
 
     # # reward scales #############################################
@@ -487,8 +504,11 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     ang_vel_reward_scale = -0.0       # -0.01       # Scale = 100
     lin_acc_reward_scale = -0.0      # -0.001
     ang_acc_reward_scale = -0.0      # -0.001
-    thrust_power_reward_scale = -2.5e-4  # -1.0e-4  # Scale = ave(10)^2*4 = 400
+    thrust_power_reward_scale = -5.0e-4  # -1.0e-4  # Scale = ave(10)^2*4 = 400
     contact_reward_scale = -0.01  # Scale = 0.5
+    # joint mechanical-stop force (j*_center_plate); grows with over-commanded preload, so it
+    # penalizes pressing the stop too hard (joint_limit only sees the saturated position)
+    joint_contact_reward_scale = -1.0e-3
     died_reward_scale = -0.0  # -1.5
 
     # # # Tracking rewards (DeepMimic / whole_body_tracking style) ----------------
@@ -507,36 +527,33 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     joint_deviation_reward_scale = -0.3      # 6-link joint-position deviation from demo (single L2 term)
     # std controls the tolerance band of each exp term (smaller -> sharper, demands tighter tracking)
     position_tracking_std = 0.3              # [m]
-    orientation_tracking_std = math.pi / 6.0 # [rad]
-    joint_tracking_std = math.pi / 5.0       # [rad], L2 norm over the 6 joints
+    orientation_tracking_std = math.pi / 5.0 # [rad]
+    joint_tracking_std = math.pi / 6.0       # [rad], L2 norm over the 6 joints
 
     body_lin_vel_tracking_reward_scale = -0.01  # squared L2 (-0.01) -, exp form +;
-    body_lin_vel_tracking_std = 0.1  # average lin vel in demo ~0.05 m/s
+    body_lin_vel_tracking_std = 0.15  # average lin vel in demo ~0.05 m/s
     body_ang_vel_tracking_reward_scale = -0.01  # squared L2 (-0.01) -, exp form +;
-    body_ang_vel_tracking_std = 0.2  # average ang vel in demo ~0.1 rad/s
+    body_ang_vel_tracking_std = 0.25  # average ang vel in demo ~0.1 rad/s
 
     # smoothing reward scales
-    # joint/gimbal action-rate are now computed on the RAW policy output (no action-scale alpha),
-    # so these were rescaled from the old physical-space values by ~alpha^2 to keep a comparable
-    # effective penalty (joint: -0.005*0.2^2; gimbal: -0.05*~0.28^2). thrust rate is still in
-    # physical-N space, so its scale is unchanged.
-    joint_action_rate_reward_scale = -0.005   # raw-action space (was -0.005 in physical rad space)
-    gimbal_action_rate_reward_scale = -0.005  # raw-action space (was -0.05 in physical rad space)
-    thrust_action_rate_reward_scale = -0.002  # -1.0e-4 (physical N space, unchanged)
+    # Action-rate penalties are computed after applying action scales, so the squared deltas
+    # are in physical command units: joint/gimbal rad and paired-thrust N.
+    joint_action_rate_reward_scale = -0.5
+    gimbal_action_rate_reward_scale = -0.8
+    thrust_action_rate_reward_scale = -0.05
 
     joint_vel_reward_scale = 0.0  # -0.01
-    joint_acc_reward_scale = -1.0e-4  # -1.5e-7  5e-7
-    joint_limit_reward_scale = -0.002  # -0.01
-    joint_limit_range = math.pi * 0.5
+    joint_acc_reward_scale = -5.0e-4  # -1.5e-7  5e-7
+    joint_limit_reward_scale = -1.0  # -0.01; limits = URDF limits * robot soft_joint_pos_limit_factor
 
     gimbal_vel_reward_scale = 0.0  # -1.0e-5
-    gimbal_acc_reward_scale = -1.0e-4  # -1.5e-7  5e-7
-    gimbal_limit_reward_scale = -0.002  # -0.01
-    gimbal_limit_range = math.pi * 1.0
+    gimbal_acc_reward_scale = -5.0e-4  # -1.5e-7  5e-7
+    gimbal_limit_reward_scale = -0.01  # -0.01
+    gimbal_limit_range = math.pi * 0.9
     gimbal_smooth_reward_scale = -0.0  # -1.0e-4
     gimbal_vibration_reward_scale = 0.0  # -1.0e-3  => reduce gimbal vibration -1.0e-6
 
-    thrust_limit_reward_scale = -0.01  # -0.01
+    thrust_limit_reward_scale = -0.05  # -0.01
     thrust_limit = control.thrust_limit * 0.9
 
     # # Joint / gimbal torque rewards (torque read from the implicit-actuator PD estimate) #######
@@ -545,175 +562,113 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     # torque_power: mechanical power sum|applied_torque * joint_vel| (energy/effort minimization).
     # torque_limit: sum of soft-limit violation of the *computed* (pre-clip) torque, so the penalty
     #               still has gradient once the actuator saturates (cf. humanoid_hsi _reward_torque_limits).
-    joint_torque_power_reward_scale = -1.0e-5
-    joint_torque_limit_reward_scale = -0.002
-    gimbal_torque_power_reward_scale = -1.0e-4
-    gimbal_torque_limit_reward_scale = -0.01
-    soft_torque_limit = 0.9  # fraction of effort_limit before the torque-limit penalty kicks in
+    joint_torque_power_reward_scale = -2.5e-5
+    joint_torque_limit_reward_scale = -0.05
+    gimbal_torque_power_reward_scale = 0.0
+    gimbal_torque_limit_reward_scale = 0.0
+    soft_joint_torque_limit = 0.4  # 6.2 * 0.4 = 2.48 Nm, prevent pulley tooth skipping
+    soft_gimbal_torque_limit = 0.9  # fraction of effort_limit before the torque-limit penalty kicks in
 
     # # Delay model parameters ##################################
-    if add_delay:
-        obsPosDelay = DelayModelCfg()
-        obsPosDelay.name = "pos"
-        obsPosDelay.dim = 3
-        obsPosDelay.default = [0.0, 0.0, 0.0]
-        obsPosDelay.min_delay_steps = 0
-        obsPosDelay.max_delay_steps = 0
-        obsPosDelay.jitter_delay_steps = 0
-        obsQuatDelay = DelayModelCfg()
-        obsQuatDelay.name = "quat"
-        obsQuatDelay.dim = 4
-        obsQuatDelay.default = [1.0, 0.0, 0.0, 0.0]
-        obsQuatDelay.min_delay_steps = 0
-        obsQuatDelay.max_delay_steps = 0
-        obsQuatDelay.jitter_delay_steps = 0
-        obsLinVelDelay = DelayModelCfg()
-        obsLinVelDelay.name = "linvel"
-        obsLinVelDelay.dim = 3
-        obsLinVelDelay.default = [0.0, 0.0, 0.0]
-        obsLinVelDelay.min_delay_steps = 3
-        obsLinVelDelay.max_delay_steps = 5
-        obsLinVelDelay.jitter_delay_steps = 1
-        obsAngVelDelay = DelayModelCfg()
-        obsAngVelDelay.name = "angvel"
-        obsAngVelDelay.dim = 3
-        obsAngVelDelay.default = [0.0, 0.0, 0.0]
-        obsAngVelDelay.min_delay_steps = 3
-        obsAngVelDelay.max_delay_steps = 5
-        obsAngVelDelay.jitter_delay_steps = 1
-        obsJointPosDelay = DelayModelCfg()
-        obsJointPosDelay.name = "joint_pos"
-        obsJointPosDelay.dim = 6
-        obsJointPosDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        obsJointPosDelay.min_delay_steps = 1
-        obsJointPosDelay.max_delay_steps = 2
-        obsJointPosDelay.jitter_delay_steps = 1
-        obsJointVelDelay = DelayModelCfg()
-        obsJointVelDelay.name = "joint_vel"
-        obsJointVelDelay.dim = 6
-        obsJointVelDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        obsJointVelDelay.min_delay_steps = 1
-        obsJointVelDelay.max_delay_steps = 2
-        obsJointVelDelay.jitter_delay_steps = 1
-        obsGimbalPosDelay = DelayModelCfg()
-        obsGimbalPosDelay.name = "gimbal_pos"
-        obsGimbalPosDelay.dim = 8
-        obsGimbalPosDelay.default = [0.0, 0.0, 0.0, 0.0,
-                                     0.0, 0.0, 0.0, 0.0]
-        obsGimbalPosDelay.min_delay_steps = 1
-        obsGimbalPosDelay.max_delay_steps = 2
-        obsGimbalPosDelay.jitter_delay_steps = 1
-        obsGimbalVelDelay = DelayModelCfg()
-        obsGimbalVelDelay.name = "gimbal_vel"
-        obsGimbalVelDelay.dim = 8
-        obsGimbalVelDelay.default = [0.0, 0.0, 0.0, 0.0,
-                                     0.0, 0.0, 0.0, 0.0]
-        obsGimbalVelDelay.min_delay_steps = 1
-        obsGimbalVelDelay.max_delay_steps = 2
-        obsGimbalVelDelay.jitter_delay_steps = 1
-        actJointDelay = DelayModelCfg()
-        actJointDelay.name = "joint"
-        actJointDelay.dim = 6
-        actJointDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # joint
-        actJointDelay.min_delay_steps = 1 * 5
-        actJointDelay.max_delay_steps = 2 * 5
-        actJointDelay.jitter_delay_steps = 1 * 5
-        actGimbalDelay = DelayModelCfg()
-        actGimbalDelay.name = "gimbal"
-        actGimbalDelay.dim = 8
-        actGimbalDelay.default = [0.0, 0.0, 0.0, 0.0,
-                                  0.0, 0.0, 0.0, 0.0]  # gimbal
-        actGimbalDelay.min_delay_steps = 1 * 5
-        actGimbalDelay.max_delay_steps = 2 * 5
-        actGimbalDelay.jitter_delay_steps = 1 * 5
-        actThrustDelay = DelayModelCfg()
-        actThrustDelay.name = "thrust"
-        actThrustDelay.dim = 8
-        actThrustDelay.default = [control.thrust_hover] * rotor_num  # hover thrust
-        actThrustDelay.min_delay_steps = 1 * 5
-        actThrustDelay.max_delay_steps = 3 * 5
-        actThrustDelay.jitter_delay_steps = 1 * 5
-    else:
-        obsPosDelay = DelayModelCfg()
-        obsPosDelay.name = "pos"
-        obsPosDelay.dim = 3
-        obsPosDelay.default = [0.0, 0.0, 0.0]
-        obsPosDelay.min_delay_steps = 0
-        obsPosDelay.max_delay_steps = 0
-        obsPosDelay.jitter_delay_steps = 0
-        obsQuatDelay = DelayModelCfg()
-        obsQuatDelay.name = "quat"
-        obsQuatDelay.dim = 4
-        obsQuatDelay.default = [1.0, 0.0, 0.0, 0.0]
-        obsQuatDelay.min_delay_steps = 0
-        obsQuatDelay.max_delay_steps = 0
-        obsQuatDelay.jitter_delay_steps = 0
-        obsLinVelDelay = DelayModelCfg()
-        obsLinVelDelay.name = "linvel"
-        obsLinVelDelay.dim = 3
-        obsLinVelDelay.default = [0.0, 0.0, 0.0]
-        obsLinVelDelay.min_delay_steps = 4
-        obsLinVelDelay.max_delay_steps = 4
-        obsLinVelDelay.jitter_delay_steps = 0
-        obsAngVelDelay = DelayModelCfg()
-        obsAngVelDelay.name = "angvel"
-        obsAngVelDelay.dim = 3
-        obsAngVelDelay.default = [0.0, 0.0, 0.0]
-        obsAngVelDelay.min_delay_steps = 4
-        obsAngVelDelay.max_delay_steps = 4
-        obsAngVelDelay.jitter_delay_steps = 0
-        obsJointPosDelay = DelayModelCfg()
-        obsJointPosDelay.name = "joint_pos"
-        obsJointPosDelay.dim = 6
-        obsJointPosDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        obsJointPosDelay.min_delay_steps = 1
-        obsJointPosDelay.max_delay_steps = 1
-        obsJointPosDelay.jitter_delay_steps = 1
-        obsJointVelDelay = DelayModelCfg()
-        obsJointVelDelay.name = "joint_vel"
-        obsJointVelDelay.dim = 6
-        obsJointVelDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]   # joint_vel
-        obsJointVelDelay.min_delay_steps = 1
-        obsJointVelDelay.max_delay_steps = 1
-        obsJointVelDelay.jitter_delay_steps = 1
-        obsGimbalPosDelay = DelayModelCfg()
-        obsGimbalPosDelay.name = "gimbal_pos"
-        obsGimbalPosDelay.dim = 8
-        obsGimbalPosDelay.default = [0.0, 0.0, 0.0, 0.0,
-                                     0.0, 0.0, 0.0, 0.0]
-        obsGimbalPosDelay.min_delay_steps = 1
-        obsGimbalPosDelay.max_delay_steps = 1
-        obsGimbalPosDelay.jitter_delay_steps = 0
-        obsGimbalVelDelay = DelayModelCfg()
-        obsGimbalVelDelay.name = "gimbal_vel"
-        obsGimbalVelDelay.dim = 8
-        obsGimbalVelDelay.default = [0.0, 0.0, 0.0, 0.0,
-                                     0.0, 0.0, 0.0, 0.0]
-        obsGimbalVelDelay.min_delay_steps = 1
-        obsGimbalVelDelay.max_delay_steps = 2
-        obsGimbalVelDelay.jitter_delay_steps = 1
-        actJointDelay = DelayModelCfg()
-        actJointDelay.name = "joint"
-        actJointDelay.dim = 6
-        actJointDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # joint
-        actJointDelay.min_delay_steps = 2
-        actJointDelay.max_delay_steps = 2
-        actJointDelay.jitter_delay_steps = 0
-        actGimbalDelay = DelayModelCfg()
-        actGimbalDelay.name = "gimbal"
-        actGimbalDelay.dim = 8
-        actGimbalDelay.default = [0.0, 0.0, 0.0, 0.0,
-                                  0.0, 0.0, 0.0, 0.0]  # gimbal
-        actGimbalDelay.min_delay_steps = 2
-        actGimbalDelay.max_delay_steps = 2
-        actGimbalDelay.jitter_delay_steps = 0
-        actThrustDelay = DelayModelCfg()
-        actThrustDelay.name = "thrust"
-        actThrustDelay.dim = 8
-        actThrustDelay.default = [control.thrust_hover] * rotor_num  # hover thrust
-        actThrustDelay.min_delay_steps = 2
-        actThrustDelay.max_delay_steps = 2
-        actThrustDelay.jitter_delay_steps = 0
+    obsPosDelay = DelayModelCfg()
+    obsPosDelay.name = "pos"
+    obsPosDelay.dim = 3
+    obsPosDelay.default = [0.0, 0.0, 0.0]
+    obsPosDelay.min_delay_steps = 0
+    obsPosDelay.max_delay_steps = 0
+    obsPosDelay.jitter_delay_steps = 0
+    obsQuatDelay = DelayModelCfg()
+    obsQuatDelay.name = "quat"
+    obsQuatDelay.dim = 4
+    obsQuatDelay.default = [1.0, 0.0, 0.0, 0.0]
+    obsQuatDelay.min_delay_steps = 0
+    obsQuatDelay.max_delay_steps = 0
+    obsQuatDelay.jitter_delay_steps = 0
+    obsLinVelDelay = DelayModelCfg()
+    obsLinVelDelay.name = "linvel"
+    obsLinVelDelay.dim = 3
+    obsLinVelDelay.default = [0.0, 0.0, 0.0]
+    obsLinVelDelay.min_delay_steps = 0
+    obsLinVelDelay.max_delay_steps = 1
+    obsLinVelDelay.jitter_delay_steps = 1
+    obsAngVelDelay = DelayModelCfg()
+    obsAngVelDelay.name = "angvel"
+    obsAngVelDelay.dim = 3
+    obsAngVelDelay.default = [0.0, 0.0, 0.0]
+    obsAngVelDelay.min_delay_steps = 0
+    obsAngVelDelay.max_delay_steps = 1
+    obsAngVelDelay.jitter_delay_steps = 1
+    obsJointPosDelay = DelayModelCfg()
+    obsJointPosDelay.name = "joint_pos"
+    obsJointPosDelay.dim = 6
+    obsJointPosDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    obsJointPosDelay.min_delay_steps = 0
+    obsJointPosDelay.max_delay_steps = 1
+    obsJointPosDelay.jitter_delay_steps = 1
+    obsJointVelDelay = DelayModelCfg()
+    obsJointVelDelay.name = "joint_vel"
+    obsJointVelDelay.dim = 6
+    obsJointVelDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    obsJointVelDelay.min_delay_steps = 0
+    obsJointVelDelay.max_delay_steps = 1
+    obsJointVelDelay.jitter_delay_steps = 1
+    obsGimbalPosDelay = DelayModelCfg()
+    obsGimbalPosDelay.name = "gimbal_pos"
+    obsGimbalPosDelay.dim = 8
+    obsGimbalPosDelay.default = [0.0, 0.0, 0.0, 0.0,
+                                 0.0, 0.0, 0.0, 0.0]
+    obsGimbalPosDelay.min_delay_steps = 0
+    obsGimbalPosDelay.max_delay_steps = 1
+    obsGimbalPosDelay.jitter_delay_steps = 1
+    obsGimbalVelDelay = DelayModelCfg()
+    obsGimbalVelDelay.name = "gimbal_vel"
+    obsGimbalVelDelay.dim = 8
+    obsGimbalVelDelay.default = [0.0, 0.0, 0.0, 0.0,
+                                 0.0, 0.0, 0.0, 0.0]
+    obsGimbalVelDelay.min_delay_steps = 0
+    obsGimbalVelDelay.max_delay_steps = 1
+    obsGimbalVelDelay.jitter_delay_steps = 1
+    actJointDelay = DelayModelCfg()
+    actJointDelay.name = "joint"
+    actJointDelay.dim = 6
+    actJointDelay.default = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # joint
+    actJointDelay.min_delay_steps = 0 * 5
+    actJointDelay.max_delay_steps = 1 * 5
+    actJointDelay.jitter_delay_steps = 1
+    actGimbalDelay = DelayModelCfg()
+    actGimbalDelay.name = "gimbal"
+    actGimbalDelay.dim = 8
+    actGimbalDelay.default = [0.0, 0.0, 0.0, 0.0,
+                              0.0, 0.0, 0.0, 0.0]  # gimbal
+    actGimbalDelay.min_delay_steps = 0 * 5
+    actGimbalDelay.max_delay_steps = 1 * 5
+    actGimbalDelay.jitter_delay_steps = 1
+    actThrustDelay = DelayModelCfg()
+    actThrustDelay.name = "thrust"
+    actThrustDelay.dim = 8
+    actThrustDelay.default = [control.thrust_hover] * rotor_num  # hover thrust
+    actThrustDelay.min_delay_steps = 0 * 5
+    actThrustDelay.max_delay_steps = 2 * 5
+    actThrustDelay.jitter_delay_steps = 2
+
+    # # State estimator model ####################################
+    # actor lin_vel / ang_vel as the aerial_robot estimator (EXPERIMENT_ESTIMATE) outputs them;
+    # obsLinVelDelay / obsAngVelDelay are applied after it. Critic keeps the IMU truth.
+
+    stateEstimator = DragonStateEstimatorModelCfg()
+    stateEstimator.dt = sim_dt
+    stateEstimator.gravity = 9.81
+    stateEstimator.yaw_iir_cutoff_hz = 10.0
+    stateEstimator.yaw_iir_jsk_formula = True
+    stateEstimator.estimate_lin_vel = True
+    stateEstimator.sigma_acc = 0.05
+    stateEstimator.sigma_acc_bias = 0.001
+    stateEstimator.sigma_pos = 0.0002
+    stateEstimator.mocap_period_steps = 2  # 100 Hz
+    stateEstimator.accel_delay_steps_range = (8, 16)  # 40~80 ms
+    stateEstimator.accel_noise_std_range = (0.0, 0.5)  # m/s^2
+    stateEstimator.mocap_delay_steps_range = (2, 4)
+    stateEstimator.mocap_noise_std_range = (0.0, 0.0005)  # m
 
     # # # # Noise Configuration
     noiseCfg = {
@@ -723,7 +678,7 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
             "scale_lb": 1.0,
             "scale_ub": 1.0,
             "mean": 0.005,
-            "std": 0.005,
+            "std": 0.01,
             "clip": 0.3,
         },
         "root_quat": {
@@ -732,16 +687,16 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
             "scale_lb": 1.0,
             "scale_ub": 1.0,
             "mean": math.pi * (1.0 / 180.0),
-            "std": math.pi * (1.0 / 180.0),
+            "std": math.pi * (2.0 / 180.0),
             "clip": 0.3,
         },
         "lin_vel": {
             "type": "uniform",
             "dim": 3,
-            "scale_lb": 0.95,
-            "scale_ub": 1.05,
-            "mean": 0.005,
-            "std": 0.005,
+            "scale_lb": 0.90,
+            "scale_ub": 1.10,
+            "mean": 0.01,
+            "std": 0.05,
             "clip": 3.0,
         },
         "ang_vel": {
@@ -749,8 +704,8 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
             "dim": 3,
             "scale_lb": 0.90,
             "scale_ub": 1.10,
-            "mean": 0.005,
-            "std": 0.01,
+            "mean": 0.01,
+            "std": 0.05,
             "clip": 3.0,
         },
         "joint_pos": {
@@ -788,6 +743,24 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
             "mean": math.pi * (3.0 / 180.0),
             "std": math.pi * (2.0 / 180.0),
             "clip": 0.1,
+        },
+        "joint_pos_delta": {
+            "type": "uniform",
+            "dim": joint_num,
+            "scale_lb": 0.995,
+            "scale_ub": 1.005,
+            "mean": 0.0,
+            "std": math.pi * (0.2 / 180.0),  # sim_dt
+            "clip": 5.0,
+        },
+        "gimbal_pos_delta": {
+            "type": "uniform",
+            "dim": gimbal_num,
+            "scale_lb": 0.995,
+            "scale_ub": 1.005,
+            "mean": 0.0,
+            "std": math.pi * (0.2 / 180.0),  # sim_dt
+            "clip": 5.0,
         },
     }
 
@@ -902,7 +875,7 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
     body_contact_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/link.*",  # Bind to the robot root link
         # prim_path="/World/envs/env_.*/Robot/base_link",  # Bind to the robot root link
-        history_length=4,
+        history_length=decimation,  # cover every physics substep of one env step
         update_period=0,  # Update every physics step
         track_air_time=True,
         # track_contact_points=True,
@@ -913,7 +886,7 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
 
     thrust_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/edf.*",  # Bind to all rotor parent links
-        history_length=1,
+        history_length=decimation,  # cover every physics substep of one env step
         update_period=0,
         track_air_time=True,
         track_pose=True,
@@ -931,9 +904,18 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
         # filter_prim_paths_expr=[terrain.prim_path],  # Only track contacts with the ground
     )
 
+    # The center plate sits between the pitch/yaw axes and only touches the j*_pitch_frame /
+    # j*_yaw_frame colliders at the joint mechanical stop, so its net force is the stop force.
+    joint_contact_sensor: ContactSensorCfg = ContactSensorCfg(
+        prim_path="/World/envs/env_.*/Robot/j.*_center_plate",
+        history_length=decimation,  # cover every physics substep of one env step
+        update_period=0,  # Update every physics step
+        debug_vis=training_view,
+    )
+
     end_contact_sensor: ContactSensorCfg = ContactSensorCfg(
         prim_path="/World/envs/env_.*/Robot/.*_end",  # Bind to the robot foot link
-        history_length=4,
+        history_length=decimation,  # cover every physics substep of one env step
         update_period=0,  # Update every physics step
         track_air_time=True,
         track_pose=True,
@@ -962,19 +944,30 @@ class DragonTrackEnvCfg(DirectRLEnvCfg):
 class DragonTrackEnv(DirectRLEnv):
     cfg: DragonTrackEnvCfg
 
+    def get_evaluation_spec(self):
+        """Return the task-owned evaluation spec used by scripts/rsl_rl/evaluate.py."""
+        from .dragonEvaluation import DragonEvaluation
+
+        return DragonEvaluation(self)
+
     def __init__(self, cfg: DragonTrackEnvCfg, render_mode: str | None = None, **kwargs):
-        play_vis = bool(getattr(cfg, "play_mode", False))
-        if play_vis:
-            cfg.episode_length_s = 120.0
+        play_mode = bool(getattr(cfg, "play_mode", False))
+        evaluate_mode = bool(getattr(cfg, "evaluate_mode", False))
+        track_whole = play_mode or evaluate_mode
+        if evaluate_mode:
+            cfg.demo_file = cfg.evaluation_demo_file
+            cfg.multi_trajectory_switch_stage = False
+        elif play_mode:
+            cfg.episode_length_s = 200.0
 
         # PoseTrackingEnvWindow is created inside DirectRLEnv.__init__, so these flags must exist
         # before the parent init builds the debug-visualization checkboxes.
         training_vis = bool(getattr(cfg, "training_view", False))
-        self._vis_targets = training_vis or play_vis
+        self._vis_targets = training_vis or track_whole
         self._vis_thrusts = training_vis
-        self._vis_track_ends = play_vis
+        self._vis_track_ends = track_whole
         self._end_fk_ready = False
-        self._vis_actual_ends = play_vis
+        self._vis_actual_ends = track_whole
         self._actual_ends_ready = False
 
         super().__init__(cfg, render_mode, **kwargs)
@@ -999,6 +992,10 @@ class DragonTrackEnv(DirectRLEnv):
         self._actJointDelayModel = DelayModel(cfg.actJointDelay, device=self.device, num_envs=self.num_envs)
         self._actGimbalDelayModel = DelayModel(cfg.actGimbalDelay, device=self.device, num_envs=self.num_envs)
         self._actThrustDelayModel = DelayModel(cfg.actThrustDelay, device=self.device, num_envs=self.num_envs)
+        # # State estimator model
+        self._stateEstimator = DragonStateEstimatorModel(cfg.stateEstimator, self.device, self.num_envs)
+        self._est_lin_vel_b = torch.zeros(self.num_envs, 3, device=self.device)
+        self._est_ang_vel_b = torch.zeros(self.num_envs, 3, device=self.device)
         # # Randomization events
         self.randomCfg = cfg.randomization
         # # Normalization
@@ -1032,6 +1029,14 @@ class DragonTrackEnv(DirectRLEnv):
 
         self._thrust_ids = self._robot.find_bodies("edf.*")
         self._link_ids = self._robot.find_bodies("link.*")
+        # These IDs are consumed on every physics substep. Cache their device tensors instead of
+        # allocating new CUDA tensors in the action hot path.
+        self._thrust_body_ids_tensor = torch.tensor(
+            self._thrust_ids[0], dtype=torch.int32, device=self.device
+        )
+        self._link_body_ids_tensor = torch.tensor(
+            self._link_ids[0], dtype=torch.int32, device=self.device
+        )
         self._rotor_directions = [1 if "left" in name else -1 for name in self._thrust_ids[1]]
         self._rotor_action_indices = self._aars_build_paired_rotor_action_indices(self._thrust_ids[1])
         self._gimbal_ids = self._robot.find_joints("gimbal.*")
@@ -1142,6 +1147,9 @@ class DragonTrackEnv(DirectRLEnv):
             self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
         )
         self._last_last_actions = self._last_actions.clone()
+        self._actions_scaled = torch.zeros(
+            self.num_envs, gym.spaces.flatdim(self.single_action_space), device=self.device
+        )
         self._action_joint_pos = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._last_action_joint_pos = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._action_gimbal_pos = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
@@ -1198,6 +1206,10 @@ class DragonTrackEnv(DirectRLEnv):
         self._push_impulse_steps_left = torch.zeros(self.num_envs, self._num_links, device=self.device, dtype=torch.int32)
         self._push_impulse_force_b = torch.zeros(self.num_envs, self._num_links, 3, device=self.device)
         self._external_force_b = torch.zeros(self.num_envs, self._num_links, 3, device=self.device)
+        # Host-side upper bound for composer writes after an impulse is scheduled. The extra step
+        # writes zeros once after the longest possible impulse, clearing the composer's persistent
+        # force entries without polling a CUDA tensor from the CPU on every physics substep.
+        self._push_wrench_write_steps_remaining = 0
 
         # # # # Stages %%%%%%%%%%%%%%%%%%%%%%%
         # If stage = 0 (mode = False), then no randomization/fault/disturbance is applied (defult to reset stage),
@@ -1222,6 +1234,10 @@ class DragonTrackEnv(DirectRLEnv):
         self._died_orientation = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._died_joint = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._died_crash = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._died_drift = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+
+        # Early-termination diagnostics are written as one CSV row per terminated env.
+        self._early_termination_csv_path: str | None = None
 
         # # # # Reference Motion (target trajectory) %%%%%%%%%%%%%%%%%%
         # target clip, re-ordered to this environment's joint order. It drives the tracking task and the
@@ -1240,12 +1256,49 @@ class DragonTrackEnv(DirectRLEnv):
             else None,
             device=self.device,
         )
-        # Hybrid RSI (optional): the AMP `real` clip, loaded here so _reset_idx can search it for the
-        # nearest dynamically-feasible frame to the target start. Needs gimbal+rotor columns so the
-        # matched frame can seed gimbal/thrust. The AMP env reuses this handle to avoid a double load.
+        if self.cfg.multi_trajectory_switch_stage:
+            target_motion_files = list(self.cfg.multi_trajectory_demo_files)
+            if len(target_motion_files) == 0:
+                raise ValueError(
+                    "multi_trajectory_switch_stage is enabled, but multi_trajectory_demo_files is empty."
+                )
+            normalized_motion_files = [os.path.realpath(path) for path in target_motion_files]
+            if len(set(normalized_motion_files)) != len(normalized_motion_files):
+                raise ValueError("The Stage 2 target trajectory pool contains duplicate files.")
+            stage1_motion_path = os.path.realpath(self.cfg.demo_file)
+            if stage1_motion_path not in normalized_motion_files:
+                raise ValueError(
+                    "multi_trajectory_demo_files must explicitly include demo_file when "
+                    "multi_trajectory_switch_stage is enabled."
+                )
+            self._stage1_motion_id = normalized_motion_files.index(stage1_motion_path)
+            target_motions = [
+                self._motion
+                if normalized_path == stage1_motion_path
+                else DragonMotion(
+                    motion_file,
+                    joint_names_env=self._joint_ids[1],
+                    device=self.device,
+                )
+                for motion_file, normalized_path in zip(target_motion_files, normalized_motion_files)
+            ]
+            target_motion_names = [os.path.basename(path) for path in target_motion_files]
+        else:
+            self._stage1_motion_id = 0
+            target_motions = [self._motion]
+            target_motion_names = [os.path.basename(self.cfg.demo_file)]
+        self._motion_library = DragonMotionLibrary(
+            target_motions,
+            names=target_motion_names,
+            step_dt=self.step_dt,
+            reset_min_height=self.randomCfg.rsi_min_height,
+        )
+        # Hybrid RSI (training only): the AMP `real` clip, loaded here so _reset_idx can search it
+        # for the nearest dynamically-feasible frame to the target start. Evaluation resets exactly
+        # from its target clip; AMP subclasses load their expert clip separately when this is None.
         self._real_motion = None
         self._hybrid_init_logged = False
-        if self.cfg.hybrid_initialization:
+        if self.cfg.hybrid_initialization and not self.cfg.evaluate_mode:
             self._real_motion = DragonMotion(
                 self.cfg.amp_demo_file,
                 joint_names_env=self._joint_ids[1],
@@ -1255,9 +1308,47 @@ class DragonTrackEnv(DirectRLEnv):
             )
         # virtual (monotonically increasing) playback phase in demo frames; the actual
         # frame index ping-pongs within [0, max_index] via triangle-wave reflection.
-        self._motion_virtual = torch.zeros(self.num_envs, device=self.device)
-        # demo frames advanced per control step = clip_fps * step_dt
-        self._motion_phase_rate = self._motion.fps * self.step_dt
+        self._motion_virtual = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        # The selected target trajectory remains fixed from reset until the episode ends.
+        self._motion_ids = torch.full(
+            (self.num_envs,), self._stage1_motion_id, device=self.device, dtype=torch.long
+        )
+        # Integer demo frames advanced per control step. The library validates that every target
+        # clip is aligned with the environment control rate during initialization.
+        self._motion_phase_step = self._motion_library.phase_steps(self._motion_ids)
+        self._evaluation_hold_steps = 0
+        self._evaluation_clip_steps = 0
+        self._evaluation_last_frame = 0
+        if self.cfg.evaluate_mode:
+            if self.cfg.evaluation_hold_time_s < 0.0:
+                raise ValueError("evaluation_hold_time_s must be non-negative.")
+            self._evaluation_hold_steps = round(self.cfg.evaluation_hold_time_s / self.step_dt)
+            if not math.isclose(
+                self._evaluation_hold_steps * self.step_dt,
+                self.cfg.evaluation_hold_time_s,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise ValueError("evaluation_hold_time_s must be an integer multiple of the control step.")
+            phase_step = int(self._motion_phase_step[0].item())
+            self._evaluation_last_frame = int(self._motion.max_index)
+            self._evaluation_clip_steps = math.ceil(self._evaluation_last_frame / phase_step)
+            evaluation_steps = 2 * self._evaluation_hold_steps + self._evaluation_clip_steps
+            self.cfg.episode_length_s = evaluation_steps * self.step_dt
+            print(
+                f"[evaluation_timeline] trajectory={os.path.basename(self.cfg.demo_file)} | "
+                f"hold_start={self._evaluation_hold_steps} steps | "
+                f"clip={self._evaluation_clip_steps} steps | "
+                f"hold_end={self._evaluation_hold_steps} steps | "
+                f"episode={self.cfg.episode_length_s:.3f}s"
+            )
+        self._motion_future_offsets = torch.arange(
+            1,
+            self.cfg.track_horizon + 1,
+            device=self.device,
+            dtype=torch.long,
+        )
+        self._multi_trajectory_stage_logged = False
         # cached world-frame look-ahead targets (K future frames) for the observation
         self._target_pos_w = torch.zeros(self.num_envs, self.cfg.track_horizon, 3, device=self.device)
         self._target_quat_w = torch.zeros(self.num_envs, self.cfg.track_horizon, 4, device=self.device)
@@ -1270,7 +1361,7 @@ class DragonTrackEnv(DirectRLEnv):
         self._target_ang_vel_w = torch.zeros(self.num_envs, self.cfg.track_horizon, 3, device=self.device)
 
         # # # # Rotor %%%%%%%%%%%%%%%%%%%%%%%%
-        self._action_thrust_rate = torch.zeros(self.num_envs, self.cfg.rotor_num, device=self.device)
+        self._action_thrust_rate = torch.zeros(self.num_envs, self.cfg.paired_rotor_num, device=self.device)
         self._target_thrust_force = torch.zeros(self.num_envs, self.cfg.rotor_num, 3, device=self.device)
         self._target_rotor_torque = torch.zeros(self.num_envs, self.cfg.rotor_num, 3, device=self.device)
         self._thrust_force = torch.zeros(self.num_envs, self.cfg.rotor_num, device=self.device)
@@ -1280,16 +1371,19 @@ class DragonTrackEnv(DirectRLEnv):
         self._action_joint_rate = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_fixed = torch.zeros(self.num_envs, self.cfg.joint_num, dtype=torch.bool, device=self.device).fill_(False)
         self._joint_pos = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
+        self._joint_pos_last = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_vel = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_vel_last = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_acc = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_limit_violation = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_torque = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
+        self._joint_torque_power = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
         self._joint_torque_limit_violation = torch.zeros(self.num_envs, self.cfg.joint_num, device=self.device)
 
         # # # # Gimbal %%%%%%%%%%%%%%%%%%%%%%%
         self._action_gimbal_rate = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
         self._gimbal_pos = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
+        self._gimbal_pos_last = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
         self._gimbal_vel = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
         self._gimbal_vel_last = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
         self._gimbal_acc = torch.zeros(self.num_envs, self.cfg.gimbal_num, device=self.device)
@@ -1299,6 +1393,7 @@ class DragonTrackEnv(DirectRLEnv):
 
         # # # # Metrics %%%%%%%%%%%%%%%%%%%%%
         self._contact = torch.zeros(self.num_envs, device=self.device)
+        self._joint_contact = torch.zeros(self.num_envs, device=self.device)
         self._lin_vel = torch.zeros(self.num_envs, device=self.device)
         self._ang_vel = torch.zeros(self.num_envs, device=self.device)
         self._lin_acc = torch.zeros(self.num_envs, device=self.device)
@@ -1327,6 +1422,7 @@ class DragonTrackEnv(DirectRLEnv):
                 "ang_vel_tracking",
                 "thrust_power",
                 "contact",
+                "joint_contact",
                 "died",
                 "position_tracking",
                 "position_deviation",
@@ -1461,6 +1557,8 @@ class DragonTrackEnv(DirectRLEnv):
         self.scene.sensors["end_contact_sensor"] = self._end_contact_sensor
         self._thrust_sensor = ContactSensor(self.cfg.thrust_sensor)
         self.scene.sensors["thrust_sensor"] = self._thrust_sensor
+        self._joint_contact_sensor = ContactSensor(self.cfg.joint_contact_sensor)
+        self.scene.sensors["joint_contact_sensor"] = self._joint_contact_sensor
         # # # add ground plane
         self.cfg.terrain.num_envs = self.scene.cfg.num_envs
         self.cfg.terrain.env_spacing = self.scene.cfg.env_spacing
@@ -1526,6 +1624,13 @@ class DragonTrackEnv(DirectRLEnv):
                 self.sim.render()
             # update buffers at sim dt
             self.scene.update(dt=self.physics_dt)
+            if self.cfg.use_state_estimator:
+                self._est_lin_vel_b, self._est_ang_vel_b = self._stateEstimator.update(
+                    self._imu_sensor.data.pos_w,
+                    self._imu_sensor.data.quat_w,
+                    self._imu_sensor.data.lin_vel_b,
+                    self._imu_sensor.data.ang_vel_b,
+                )
 
         # post-step:
         # -- update env counters (used for curriculum generation)
@@ -1540,7 +1645,10 @@ class DragonTrackEnv(DirectRLEnv):
         # (so they grade against the same frame the policy observed) and before reset / obs,
         # so the next observation carries the next reference frame.
         # static-hover envs keep their phase frozen (zero advance) so their reference stays put.
-        self._motion_virtual += self._motion_phase_rate * (~self._static_hover_active).to(self._motion_virtual.dtype)
+        if self.cfg.evaluate_mode:
+            self._aars_set_evaluation_motion_phase(self._robot._ALL_INDICES)
+        else:
+            self._motion_virtual += self._motion_phase_step * (~self._static_hover_active).to(torch.long)
         self._aars_set_motion_targets(self._robot._ALL_INDICES)
 
         # -- reset envs that terminated/timed-out and log the episode information
@@ -1566,6 +1674,20 @@ class DragonTrackEnv(DirectRLEnv):
 
         # return observations, rewards, resets and extras
         return self.obs_buf, self.reward_buf, self.reset_terminated, self.reset_time_outs, self.extras
+
+    def _aars_scale_actions_for_observation(self, actions: torch.Tensor) -> torch.Tensor:
+        """Scale policy actions for observations."""
+        actions_scaled = actions.clone()
+        joint_end = self.cfg.joint_num
+        gimbal_end = joint_end + self.cfg.gimbal_num
+
+        actions_scaled[:, :joint_end] *= self.ctrlCfg.joint_action_scale
+        gimbal_actions_scaled = actions_scaled[:, joint_end:gimbal_end]
+        gimbal_actions_scaled[:, self.ctrlCfg.gimbal_pitch_ids] *= self.ctrlCfg.gimbal_pitch_action_scale
+        gimbal_actions_scaled[:, self.ctrlCfg.gimbal_roll_ids] *= self.ctrlCfg.gimbal_roll_action_scale
+        actions_scaled[:, gimbal_end:] *= self.ctrlCfg.thrust_action_scale
+        actions_scaled[:, gimbal_end:] *= self.obsScales.thrust
+        return actions_scaled
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         self._last_last_actions = self._last_actions.clone()
@@ -1594,6 +1716,7 @@ class DragonTrackEnv(DirectRLEnv):
             :, self.cfg.joint_num + self.cfg.gimbal_num
             : self.cfg.joint_num + self.cfg.gimbal_num + self.cfg.paired_rotor_num
         ]
+        self._actions_scaled[:] = self._aars_scale_actions_for_observation(self._actions)
         self._action_thrust_force = self._aars_expand_paired_rotor_actions(
             paired_rotor_actions
         ) * self.ctrlCfg.thrust_action_scale + self.ctrlCfg.thrust_hover  # shape: (N, 8)
@@ -1618,9 +1741,6 @@ class DragonTrackEnv(DirectRLEnv):
 
     def _apply_action(self) -> None:
         """Apply the action to the robot. Every dt step"""
-        if self.cfg.evaluate_mode:
-            if self.common_step_counter < 15:
-                return
         # Apply action delay
         self._action_joint_pos_delayed = self._actJointDelayModel.update(self._action_joint_pos)
         self._action_gimbal_pos_delayed = self._actGimbalDelayModel.update(self._action_gimbal_pos)
@@ -1632,27 +1752,11 @@ class DragonTrackEnv(DirectRLEnv):
         self._robot.permanent_wrench_composer.set_forces_and_torques(
             forces=self._target_thrust_force,
             torques=self._target_rotor_torque,
-            body_ids=torch.tensor(self._thrust_ids[0], dtype=torch.int32, device=self.device),
+            body_ids=self._thrust_body_ids_tensor,
             env_ids=self._robot._ALL_INDICES_WP,
         )
         # apply the push disturbance as an external wrench on the base body
         self._aars_apply_push_wrench()
-
-        # self._robot.set_external_force_and_torque(
-        #     forces=self._target_thrust_force,
-        #     torques=self._target_rotor_torque,
-        #     body_ids=self._thrust_ids[0],
-        # )
-
-        # env_ids = 1
-        # if self.common_step_counter % 200 == 0:
-        #     print(f"Debug Envent {env_ids}  Reset: ==========================================================")
-        #     robot_mass = self._robot.root_physx_view.get_masses()[env_ids].sum()
-        #     print(f"Robot [{env_ids}] mass: {robot_mass:.4f}, default mass: {self._robot_mass:.4f}")
-        #     root_com = self._robot.data.body_com_pose_w[env_ids, self._body_id].clone().cpu().numpy()
-        #     root_com_str = ", ".join(f"{x:.4f}" for x in root_com.flatten())
-        #     default_com_str = ", ".join(f"{x:.4f}" for x in self._robot_default_com.flatten())
-        #     print(f"Robot [{env_ids}] root com: [{root_com_str}], default com: [{default_com_str}]")
 
     def _aars_update_push_impulse_wrench(self) -> None:
         """Schedule short-duration impulse forces independently on each link for envs whose push time has arrived."""
@@ -1692,26 +1796,38 @@ class DragonTrackEnv(DirectRLEnv):
             impulse_duration_steps * link_active.squeeze(-1).to(impulse_duration_steps.dtype)
         )
         self._push_done_ids[push_env_ids] = True
+        self._push_wrench_write_steps_remaining = max(
+            self._push_wrench_write_steps_remaining,
+            int(self.cfg.push_impulse_duration_max_steps) + 1,
+        )
 
     def _aars_apply_push_wrench(self) -> None:
         """Apply the active per-link push impulse as external forces on the links via the wrench composer."""
-        if not self.cfg.push_mode:
+        # _aars_update_push_impulse_wrench never schedules an impulse at stage zero, so there is
+        # nothing to apply or clear before the push curriculum starts. This avoids a full-device
+        # buffer update and wrench-composer write on every physics substep during the warm-up.
+        if (
+            not self.cfg.push_mode
+            or self._push_stage <= 0.0
+            or self._push_wrench_write_steps_remaining <= 0
+        ):
             return
 
-        self._external_force_b.zero_()
-
-        impulse_active_mask = self._push_impulse_steps_left > 0  # (num_envs, num_links)
-        if bool(torch.any(impulse_active_mask).item()):
-            self._external_force_b[impulse_active_mask] = self._push_impulse_force_b[impulse_active_mask]
-            self._push_impulse_steps_left[impulse_active_mask] -= 1
+        # Keep the physics hot path asynchronous. In particular, do not branch on
+        # torch.any(...).item(): that synchronizes the CPU with the CUDA stream once per physics
+        # substep. Inactive entries become zero and active countdowns are decremented in place.
+        impulse_active_mask = (self._push_impulse_steps_left > 0).unsqueeze(-1)
+        torch.mul(self._push_impulse_force_b, impulse_active_mask, out=self._external_force_b)
+        self._push_impulse_steps_left.sub_(1).clamp_min_(0)
 
         # body-frame forces on the links; the thrust bodies (edf) keep their own composer entries
         self._robot.permanent_wrench_composer.set_forces_and_torques(
             forces=self._external_force_b,
             torques=None,
-            body_ids=torch.tensor(self._link_ids[0], dtype=torch.int32, device=self.device),
+            body_ids=self._link_body_ids_tensor,
             env_ids=self._robot._ALL_INDICES_WP,
         )
+        self._push_wrench_write_steps_remaining -= 1
 
     def _aars_get_static_hover_rate(self) -> float:
         """Fraction of envs that should be reset as static-hover, linearly interpolated by stage."""
@@ -1724,27 +1840,70 @@ class DragonTrackEnv(DirectRLEnv):
         upper = max(self.cfg.static_hover_rate_start, self.cfg.static_hover_rate_end)
         return float(min(max(rate, lower), upper))        
 
+    def _aars_training_progress(self) -> int:
+        """Return control-step progress, including the configured offset for resumed runs."""
+        progress = int(self.common_step_counter)
+        if self.cfg.resume_mode:
+            progress += int(self.cfg.resume_step_count)
+        return progress
+
+    def _aars_multi_trajectory_stage_active(self, progress: int | None = None) -> bool:
+        """Whether newly resetting environments should enter multi-trajectory Stage 2."""
+        if not self.cfg.multi_trajectory_switch_stage:
+            return False
+        if progress is None:
+            progress = self._aars_training_progress()
+        return progress >= int(self.cfg.multi_trajectory_switch_step_count)
+
+    def _aars_set_evaluation_motion_phase(self, env_ids: Sequence[int]) -> None:
+        """Map evaluation episode time onto one forward, endpoint-clamped trajectory pass."""
+        clip_step = (self.episode_length_buf[env_ids] - self._evaluation_hold_steps).clamp(
+            min=0,
+            max=self._evaluation_clip_steps,
+        )
+        phase = clip_step * self._motion_phase_step[env_ids]
+        self._motion_virtual[env_ids] = phase.clamp(max=self._evaluation_last_frame)
+
     def _aars_set_motion_targets(self, env_ids: Sequence[int]) -> None:
         """Fill the world-frame look-ahead target buffers from the current playback phase.
 
         Builds ``track_horizon`` future reference frames starting one step ahead of the current
-        phase, applies ping-pong reflection at the clip ends, and stores both the full horizon
-        (for the observation) and the first frame (``_desired_*``, used by reward/termination).
+        phase and stores both the full horizon (for the observation) and the first frame
+        (``_desired_*``, used by reward/termination). Training uses ping-pong reflection at the
+        clip ends; evaluation follows its endpoint-clamped, single-pass timeline.
         """
         v = self._motion_virtual[env_ids]  # (M,)
         m = len(env_ids)
-        # per-env look-ahead stride: 0 for static-hover envs so the whole K-step horizon collapses
-        # onto the (frozen) current frame -> a constant zero-velocity setpoint.
-        stride = self._motion_phase_rate * self.cfg.track_frame_stride * (
-            (~self._static_hover_active[env_ids]).to(v.dtype)
-        )  # (M,)
-        # virtual phases of the K look-ahead frames (frame 0 = next reference frame)
-        offsets = torch.arange(1, self.cfg.track_horizon + 1, device=self.device, dtype=v.dtype)
-        future_virtual = v.unsqueeze(1) + stride.unsqueeze(1) * offsets.unsqueeze(0)  # (M, K)
-        frame_index, play_sign = self._motion.reflect_phase(future_virtual.reshape(-1))
-        ref = self._motion.interpolate(frame_index)
-
+        if self.cfg.evaluate_mode:
+            # Build look-ahead from episode time so it follows the same start-hold -> one forward
+            # clip -> end-hold timeline as the current phase. Clamping prevents ping-pong playback.
+            future_episode_step = self.episode_length_buf[env_ids].unsqueeze(1) + (
+                self.cfg.track_frame_stride * self._motion_future_offsets.unsqueeze(0)
+            )
+            future_clip_step = (future_episode_step - self._evaluation_hold_steps).clamp(
+                min=0,
+                max=self._evaluation_clip_steps,
+            )
+            future_virtual = future_clip_step * self._motion_phase_step[env_ids].unsqueeze(1)
+            future_virtual.clamp_(max=self._evaluation_last_frame)
+        else:
+            # per-env look-ahead stride: 0 for static-hover envs so the whole K-step horizon
+            # collapses onto the frozen current frame -> a constant zero-velocity setpoint.
+            stride = self._motion_phase_step[env_ids] * self.cfg.track_frame_stride * (
+                (~self._static_hover_active[env_ids]).to(torch.long)
+            )  # (M,)
+            # virtual phases of the K look-ahead frames (frame 0 = next reference frame)
+            future_virtual = (
+                v.unsqueeze(1) + stride.unsqueeze(1) * self._motion_future_offsets.unsqueeze(0)
+            )  # (M, K)
         k = self.cfg.track_horizon
+        future_motion_ids = self._motion_ids[env_ids].unsqueeze(1).expand(-1, k)
+        ref, _, play_sign = self._motion_library.query(future_motion_ids, future_virtual)
+        if self.cfg.evaluate_mode:
+            # At the exact final frame the generic ping-pong query reports a reverse-play sign.
+            # Evaluation clamps there instead, so retain the trajectory's forward velocity sign.
+            play_sign = torch.ones_like(play_sign)
+
         pos = ref["base_pos_w"].reshape(m, k, 3) + self._terrain.env_origins[env_ids][:, None, :]
         quat = ref["base_quat_w"].reshape(m, k, 4)
         # joint targets are stored relative to the default pose (matches the joint-pos observation)
@@ -1788,7 +1947,7 @@ class DragonTrackEnv(DirectRLEnv):
 
     def _get_observations(self) -> dict:
         # root_pos_w = self._obsPosDelayModel.update(self._robot.data.root_pos_w)
-        # root_quat_w = self._obsQuatDelayModel.update(self._robot.data.root_quat_w)
+        # root_quat_w = self._obsQuatDelayModel.update(self._imu_sensor.data.quat_w)
         # root_pos_w = self._robot.data.root_pos_w
         # root_quat_w = self._robot.data.root_quat_w
         root_quat_w = self._imu_sensor.data.quat_w
@@ -1796,8 +1955,12 @@ class DragonTrackEnv(DirectRLEnv):
         # root_lin_vel_w = self._obsLinVelDelayModel.update(self._robot.data.root_lin_vel_w)
         # root_ang_vel_b = self._obsAngVelDelayModel.update(self._robot.data.root_ang_vel_b)
         # root_lin_vel_b = quat_apply_inverse(root_quat_w, root_lin_vel_w)
-        root_lin_vel_b = self._obsLinVelDelayModel.update(self._imu_sensor.data.lin_vel_b)
-        root_ang_vel_b = self._obsAngVelDelayModel.update(self._imu_sensor.data.ang_vel_b)
+        if self.cfg.use_state_estimator:
+            root_lin_vel_b = self._obsLinVelDelayModel.update(self._est_lin_vel_b)
+            root_ang_vel_b = self._obsAngVelDelayModel.update(self._est_ang_vel_b)
+        else:
+            root_lin_vel_b = self._obsLinVelDelayModel.update(self._imu_sensor.data.lin_vel_b)
+            root_ang_vel_b = self._obsAngVelDelayModel.update(self._imu_sensor.data.ang_vel_b)
         # IMU Debug Info ========================================================
         # imu_ang_vel_b = quat_apply(self._imu_quat_body, self._robot.data.body_ang_vel_w[:, self._imu_id])
         # print("IMU Link   Ang Vel (body frame): ", imu_ang_vel_b[0])
@@ -1815,6 +1978,12 @@ class DragonTrackEnv(DirectRLEnv):
         gimbal_vel = self._obsGimbalVelDelayModel.update(
             self._robot.data.joint_vel[:, self._gimbal_ids[0]]
         )
+
+        joint_pos_delta = joint_pos - self._joint_pos_last
+        gimbal_pos_delta = gimbal_pos - self._gimbal_pos_last
+
+        self._joint_pos_last = joint_pos.clone()
+        self._gimbal_pos_last = gimbal_pos.clone()
 
         if self.cfg.add_noise:
             if "lin_vel" in self.noiseModel.params:
@@ -1835,12 +2004,23 @@ class DragonTrackEnv(DirectRLEnv):
                 joint_pos = self.noiseModel.apply(joint_pos, "joint_pos")
             if "joint_vel" in self.noiseModel.params:
                 joint_vel = self.noiseModel.apply(joint_vel, "joint_vel")
+            if "joint_pos_delta" in self.noiseModel.params:
+                joint_pos_delta = self.noiseModel.apply(joint_pos_delta, "joint_pos_delta")
             if "gimbal_pos" in self.noiseModel.params:
                 gimbal_pos = self.noiseModel.apply(gimbal_pos, "gimbal_pos")
             if "gimbal_vel" in self.noiseModel.params:
                 gimbal_vel = self.noiseModel.apply(gimbal_vel, "gimbal_vel")
+            if "gimbal_pos_delta" in self.noiseModel.params:
+                gimbal_pos_delta = self.noiseModel.apply(gimbal_pos_delta, "gimbal_pos_delta")
 
         clip_obs = self.ctrlCfg.clip_observations
+
+        if self.cfg.replace_dof_vel_with_last_pos:
+            joint_dof_vel_obs = joint_pos_delta * self.obsScales.dof_delta
+            gimbal_dof_vel_obs = gimbal_pos_delta * self.obsScales.dof_delta
+        else:
+            joint_dof_vel_obs = joint_vel * self.obsScales.dof_vel
+            gimbal_dof_vel_obs = gimbal_vel * self.obsScales.dof_vel
 
         # === target obs : K look-ahead reference frames in the current robot frame ====
         target_obs = self._aars_compute_target_obs(root_pos_w, root_quat_w)
@@ -1851,28 +2031,31 @@ class DragonTrackEnv(DirectRLEnv):
         current_obs = torch.cat(
             (
                 joint_pos,
-                joint_vel * self.obsScales.dof_vel,
+                joint_dof_vel_obs,
                 gimbal_pos,
-                gimbal_vel * self.obsScales.dof_vel,
+                gimbal_dof_vel_obs,
                 root_rot_vec,
                 root_lin_vel_b * self.obsScales.lin_vel,
                 root_ang_vel_b * self.obsScales.ang_vel,
-                self._actions
+                self._actions_scaled,
             ),
             dim=-1,
         )
         current_obs = torch.clamp(current_obs, -clip_obs, clip_obs)
 
-        # === history obs : past `obs_history_len` current-obs frames ===================
+        # === history obs : [t-1, t-2, ..., t-H], newest completed frame first ==========
         if self.cfg.history_mode:
-            history_obs = self._observation_buffers.reshape(self.num_envs, -1)
-            # roll the buffer and store the latest current obs for the next step
+            # Clone before mutating the backing buffer. Without the clone, history_obs is a view and
+            # the update below silently changes slot 0 to the current t frame, duplicating current_obs.
+            history_obs = self._observation_buffers.reshape(
+                self.num_envs, -1
+            ).clone()
             self._observation_buffers[:, 1:] = self._observation_buffers[:, :-1].clone()
             self._observation_buffers[:, 0] = current_obs
         else:
             history_obs = current_obs[:, :0]  # empty (num_envs, 0)
 
-        # === policy observation = target | current | history | last action ============
+        # === policy observation = target | current(t) | history(t-1 ... t-H) ==========
         actor_obs = torch.cat((target_obs, current_obs, history_obs), dim=-1)
 
         critic_obs = self._get_states()
@@ -1895,7 +2078,7 @@ class DragonTrackEnv(DirectRLEnv):
                 root_rot_vec,
                 self._imu_sensor.data.lin_vel_b * self.obsScales.lin_vel,
                 self._imu_sensor.data.ang_vel_b * self.obsScales.ang_vel,
-                self._actions
+                self._actions_scaled,
             ),
             dim=-1,
         )
@@ -2010,15 +2193,21 @@ class DragonTrackEnv(DirectRLEnv):
         ).sum(dim=1)  # [num_envs]
         contact_reward = body_contact_reward + rotor_contact_reward + foot_contact_reward
         self._contact = contact_reward
+        # mean over the substep history (history_length = decimation) ~ step-averaged stop force,
+        # so impacts inside earlier substeps are not missed
+        joint_contact_reward = torch.linalg.norm(
+            self._joint_contact_sensor.data.net_forces_w_history, dim=-1  # [num_envs, decimation, num_joint_modules]
+        ).mean(dim=1).sum(dim=1)  # [num_envs]
+        self._joint_contact = joint_contact_reward
 
         # # Goal reaching reward ----------------------------------------
         body_ang_vel_norm = torch.linalg.norm(self._body_ang_vel_b, dim=-1)
         body_lin_vel_norm = torch.linalg.norm(self._body_lin_vel_b, dim=-1)
 
-        # Action-rate penalty is computed on the RAW policy output (not the scaled physical
-        # setpoint), so it is invariant to the per-actuator action scale: a single weight is
-        # consistent across DOFs and stays valid if the action scale / stiffness is retuned.
-        self._action_joint_rate = self._actions[:, : self.cfg.joint_num] - self._last_actions[:, : self.cfg.joint_num]
+        # Action-rate penalties use scaled command deltas so the values carry physical units.
+        self._action_joint_rate = (
+            self._actions[:, : self.cfg.joint_num] - self._last_actions[:, : self.cfg.joint_num]
+        ) * self.ctrlCfg.joint_action_scale
         joint_action_rate_reward = torch.sum(torch.square(self._action_joint_rate), dim=1)
 
         self._joint_pos = (self._robot.data.joint_pos[:, self._joint_ids[0]] - self._joint_default_pos).clone()
@@ -2030,17 +2219,22 @@ class DragonTrackEnv(DirectRLEnv):
         self._joint_vibration = self._joint_vel * self._joint_vel_last * joint_vibration_ids.to(torch.float32) * -1.0
         self._joint_vel_last = self._joint_vel.clone()
 
-        joint_limit = -(self._joint_pos - (-self.cfg.joint_limit_range)).clip(max=0.0)
-        joint_limit += (self._joint_pos - (self.cfg.joint_limit_range)).clip(min=0.0)
+        # same as isaaclab mdp.joint_pos_limits (whole_body_tracking): absolute joint pos vs the
+        # articulation soft limits, i.e. URDF limits scaled by soft_joint_pos_limit_factor
+        joint_pos_abs = self._robot.data.joint_pos[:, self._joint_ids[0]]
+        joint_soft_limits = self._robot.data.soft_joint_pos_limits[:, self._joint_ids[0]]
+        joint_limit = -(joint_pos_abs - joint_soft_limits[..., 0]).clip(max=0.0)
+        joint_limit += (joint_pos_abs - joint_soft_limits[..., 1]).clip(min=0.0)
         self._joint_limit_violation = joint_limit.clone()
 
         joint_vel_reward = torch.sum(torch.square(self._joint_vel), dim=1)
         joint_acc_reward = torch.sum(torch.square(self._joint_acc), dim=1)
         joint_limit_reward = torch.sum(joint_limit, dim=1)
 
-        # raw-action gimbal slice = actions[joint_num : joint_num + gimbal_num] (after the joints)
         _gimbal_act = slice(self.cfg.joint_num, self.cfg.joint_num + self.cfg.gimbal_num)
-        self._action_gimbal_rate = self._actions[:, _gimbal_act] - self._last_actions[:, _gimbal_act]
+        self._action_gimbal_rate = (self._actions[:, _gimbal_act] - self._last_actions[:, _gimbal_act]).clone()
+        self._action_gimbal_rate[:, self.ctrlCfg.gimbal_pitch_ids] *= self.ctrlCfg.gimbal_pitch_action_scale
+        self._action_gimbal_rate[:, self.ctrlCfg.gimbal_roll_ids] *= self.ctrlCfg.gimbal_roll_action_scale
         gimbal_action_rate_reward = torch.sum(torch.square(self._action_gimbal_rate), dim=1)
         self._gimbal_pos = (self._robot.data.joint_pos[:, self._gimbal_ids[0]] - self._gimbal_default_pos).clone()
         self._gimbal_vel = (self._robot.data.joint_vel[:, self._gimbal_ids[0]]).clone()
@@ -2061,9 +2255,9 @@ class DragonTrackEnv(DirectRLEnv):
         gimbal_veribration_reward = torch.sum(self._gimbal_vibration, dim=1)
         gimbal_limit_reward = torch.sum(gimbal_limit, dim=1)
 
-        # # # Thrust action-rate using the raw action slice
-        # self._action_thrust_rate = self._action_thrust_force - self._last_action_thrust_force
-        self._action_thrust_rate = self._actions[:, -self.cfg.paired_rotor_num:] - self._last_actions[:, -self.cfg.paired_rotor_num:]
+        self._action_thrust_rate = (
+            self._actions[:, -self.cfg.paired_rotor_num:] - self._last_actions[:, -self.cfg.paired_rotor_num:]
+        ) * self.ctrlCfg.thrust_action_scale
         thrust_action_rate_reward = torch.sum(torch.square(self._action_thrust_rate), dim=1)
         self._thrust_power = torch.sum(torch.square(self._action_thrust_force), dim=1)
         thrust_power_reward = self._thrust_power
@@ -2081,15 +2275,16 @@ class DragonTrackEnv(DirectRLEnv):
 
         # torque power: mechanical power |tau * qd| summed over DOFs (cf. humanoid_hsi joint_powers).
         # separate joint/gimbal scales handle the very different magnitudes between the two groups.
+        self._joint_torque_power = torch.abs(self._joint_torque * self._joint_vel)
         joint_torque_power_reward = torch.sum(torch.abs(self._joint_torque * self._joint_vel), dim=1)
         gimbal_torque_power_reward = torch.sum(torch.abs(self._gimbal_torque * self._gimbal_vel), dim=1)
 
         # torque limit: soft-limit violation of the pre-clip torque (keeps gradient past saturation).
         self._joint_torque_limit_violation = (
-            torch.abs(_joint_computed_torque) - self._joint_effort_limit * self.cfg.soft_torque_limit
+            torch.abs(_joint_computed_torque) - self._joint_effort_limit * self.cfg.soft_joint_torque_limit
         ).clip(min=0.0)
         self._gimbal_torque_limit_violation = (
-            torch.abs(_gimbal_computed_torque) - self._gimbal_effort_limit * self.cfg.soft_torque_limit
+            torch.abs(_gimbal_computed_torque) - self._gimbal_effort_limit * self.cfg.soft_gimbal_torque_limit
         ).clip(min=0.0)
         joint_torque_limit_reward = torch.sum(self._joint_torque_limit_violation, dim=1)
         gimbal_torque_limit_reward = torch.sum(self._gimbal_torque_limit_violation, dim=1)
@@ -2106,6 +2301,7 @@ class DragonTrackEnv(DirectRLEnv):
             "ang_vel_tracking": ang_vel_tracking_reward * self.cfg.body_ang_vel_tracking_reward_scale * self.step_dt,
             "thrust_power": thrust_power_reward * self.cfg.thrust_power_reward_scale * self.step_dt,
             "contact": contact_reward * self.cfg.contact_reward_scale * self.step_dt,
+            "joint_contact": joint_contact_reward * self.cfg.joint_contact_reward_scale * self.step_dt,
             "died": died_reward * self.cfg.died_reward_scale * self.step_dt,
             "position_tracking": position_tracking_reward * self.cfg.position_tracking_reward_scale * self.step_dt,
             "position_deviation": position_deviation_reward * self.cfg.position_deviation_reward_scale * self.step_dt,
@@ -2137,7 +2333,10 @@ class DragonTrackEnv(DirectRLEnv):
         return total_reward
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        time_out = self.episode_length_buf >= self.max_episode_length - 1
+        if self.cfg.evaluate_mode:
+            time_out = self.episode_length_buf >= self.max_episode_length
+        else:
+            time_out = self.episode_length_buf >= self.max_episode_length - 1
         # # Angle reset logic
         # if self.ctrlCfg.ang_reset_rate > 0.0 and self.common_step_counter > self.cfg.ang_curricular_steps:
         #     reset_mask = (self.episode_length_buf > self._reset_ang_episode_counts) & ~self._reset_ang_pose_mask
@@ -2213,12 +2412,23 @@ class DragonTrackEnv(DirectRLEnv):
         self._died_orientation = orientation_track_err > self.cfg.orientation_track_termination_threshold
         self._died_joint = joint_track_err > self.cfg.joint_track_termination_threshold
         self._died_crash = crash
+        self._died_drift = drift
         track_lost = torch.logical_or(
             self._died_joint,
             torch.logical_or(self._died_position, self._died_orientation),
         )
         # died = torch.logical_or(crash, torch.logical_or(drift, unsafe))
         died = torch.logical_or(crash, torch.logical_or(drift, track_lost))
+        self._aars_log_early_termination_rows(
+            died=died,
+            time_out=time_out,
+            position_track_err=position_track_err,
+            orientation_track_err=orientation_track_err,
+            joint_track_err=joint_track_err,
+            crash=crash,
+            drift=drift,
+            track_lost=track_lost,
+        )
         # died = torch.zeros_like(time_out, dtype=torch.bool)
         # print("Debug Done Info:")
         # print(" Crash: ", crash)
@@ -2226,8 +2436,8 @@ class DragonTrackEnv(DirectRLEnv):
         # print(" Unsafe: ", unsafe)
         # # # # DEBUG
         # import ipdb; ipdb.set_trace()
-        if self.cfg.evaluate_mode:
-            died = torch.zeros_like(time_out, dtype=torch.bool)
+        # if self.cfg.evaluate_mode:
+        #     died = torch.zeros_like(time_out, dtype=torch.bool)
         return died, time_out
 
     def _aars_hybrid_real_ref(self, frame_index: torch.Tensor, ref_target: dict) -> dict:
@@ -2300,14 +2510,120 @@ class DragonTrackEnv(DirectRLEnv):
             )
         return out
 
+    def _aars_early_termination_csv_columns(self) -> list[str]:
+        return [
+            "iter",
+            "env_id",
+            "trajectory_id",
+            "trajectory_name",
+            "ref_frame_index",
+            "_push_episode_step",
+            "episode_length_buf",
+            "position_track_err",
+            "orientation_track_err",
+            "joint_track_err",
+            "crash",
+            "drift",
+            "track_lost",
+        ]
+
+    def _aars_early_termination_csv_file(self) -> str:
+        if self._early_termination_csv_path is None:
+            filename = str(getattr(self.cfg, "early_termination_csv_filename", "early_termination_causes.csv"))
+            log_dir = getattr(self.cfg, "log_dir", None)
+            if log_dir is None:
+                log_dir = os.path.abspath(os.path.join("logs", "dragon_track"))
+
+            diagnostics_dir = os.path.join(os.path.abspath(log_dir), "diagnostics")
+            rank = os.environ.get("RANK") or os.environ.get("LOCAL_RANK")
+            if rank not in (None, "", "0"):
+                root, ext = os.path.splitext(filename)
+                filename = f"{root}_rank{rank}{ext or '.csv'}"
+
+            os.makedirs(diagnostics_dir, exist_ok=True)
+            self._early_termination_csv_path = os.path.join(diagnostics_dir, filename)
+        return self._early_termination_csv_path
+
+    def _aars_log_early_termination_rows(
+        self,
+        died: torch.Tensor,
+        time_out: torch.Tensor,
+        position_track_err: torch.Tensor,
+        orientation_track_err: torch.Tensor,
+        joint_track_err: torch.Tensor,
+        crash: torch.Tensor,
+        drift: torch.Tensor,
+        track_lost: torch.Tensor,
+    ) -> None:
+        if not bool(getattr(self.cfg, "early_termination_csv_enabled", True)):
+            return
+
+        early_terminated = died & ~time_out
+        if not bool(torch.any(early_terminated).item()):
+            return
+
+        done = died | time_out
+        mean_episode_length = torch.mean(self.episode_length_buf[done].float()).item()
+        min_mean_episode_length = float(getattr(self.cfg, "early_termination_csv_min_mean_episode_length", 300.0))
+        if mean_episode_length <= min_mean_episode_length:
+            return
+        if self.common_step_counter <= 1:
+            return
+
+        env_ids = torch.nonzero(early_terminated, as_tuple=False).squeeze(-1)
+        target_virtual = self._motion_virtual[env_ids] + (
+            self._motion_phase_step[env_ids]
+            * self.cfg.track_frame_stride
+            * (~self._static_hover_active[env_ids]).to(torch.long)
+        )
+        motion_ids = self._motion_ids[env_ids]
+        _, ref_frame_index, _ = self._motion_library.query(motion_ids, target_virtual)
+
+        path = self._aars_early_termination_csv_file()
+        file_has_header = os.path.exists(path) and os.path.getsize(path) > 0
+        with open(path, "a", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=self._aars_early_termination_csv_columns())
+            if not file_has_header:
+                writer.writeheader()
+            for row_id, env_id in enumerate(env_ids):
+                motion_id = int(motion_ids[row_id].item())
+                writer.writerow(
+                    {
+                        "iter": self.common_step_counter,
+                        "env_id": int(env_id.item()),
+                        "trajectory_id": motion_id,
+                        "trajectory_name": self._motion_library.motion_names[motion_id],
+                        "ref_frame_index": float(ref_frame_index[row_id].item()),
+                        "_push_episode_step": int(self._push_episode_step[env_id].item()),
+                        "episode_length_buf": int(self.episode_length_buf[env_id].item()),
+                        "position_track_err": float(position_track_err[env_id].item()),
+                        "orientation_track_err": float(orientation_track_err[env_id].item()),
+                        "joint_track_err": float(joint_track_err[env_id].item()),
+                        "crash": int(crash[env_id].item()),
+                        "drift": int(drift[env_id].item()),
+                        "track_lost": int(track_lost[env_id].item()),
+                    }
+                )
+
     def _reset_idx(self, env_ids: Sequence[int] | None):
         if env_ids is None:
             env_ids = self._robot._ALL_INDICES
+        elif not isinstance(env_ids, torch.Tensor):
+            env_ids = torch.tensor(env_ids, device=self.device, dtype=torch.long)
 
         # # Curriculum logic #####################################################################
-        progress = self.common_step_counter  # set progress with resume step count for curriculum
-        if self.cfg.resume_mode:
-            progress += self.cfg.resume_step_count
+        progress = self._aars_training_progress()
+        multi_trajectory_stage_active = self._aars_multi_trajectory_stage_active(progress)
+        if multi_trajectory_stage_active and not self._multi_trajectory_stage_logged:
+            self._multi_trajectory_stage_logged = True
+            weights = ", ".join(
+                f"{name}={weight:.4f}"
+                for name, weight in zip(
+                    self._motion_library.motion_names,
+                    self._motion_library.sampling_weights.tolist(),
+                )
+            )
+            print(f"[multi_trajectory_stage] active at progress={progress} | {weights}")
 
         # # # # Initial Velocity Curriculum =========================
         if self.cfg.vel_random_mode:
@@ -2396,22 +2712,26 @@ class DragonTrackEnv(DirectRLEnv):
             else:
                 self._static_hover_stage = 1.0
 
-        if self.cfg.play_mode or self.cfg.evaluate_mode:
+        if self.cfg.play_mode:
             self._vel_random_stage = 1.0
             self._gimbal_random_stage = 1.0
             self._joint_random_stage = 1.0
             self._pos_sample_stage = 1.0
             self._quat_sample_stage = 1.0
             self._push_stage = 1.0
-            self._static_hover_stage = 1.0  # rate_end (mostly full tracking) at eval/play
+            self._static_hover_stage = 1.0  # rate_end (mostly full tracking) in play mode
+        elif self.cfg.evaluate_mode:
+            # Evaluation always resets to the exact first-frame state: no random RSI phase or
+            # position/orientation/velocity/joint/gimbal perturbation, no push, no static-hover mix.
+            self._vel_random_stage = 0.0
+            self._gimbal_random_stage = 0.0
+            self._joint_random_stage = 0.0
+            self._pos_sample_stage = 0.0
+            self._quat_sample_stage = 0.0
+            self._push_stage = 0.0
+            self._static_hover_stage = 1.0
 
         # ### Logging before reset #####################################################################
-        # # # Final Metrics
-        final_distance_to_goal = torch.mean(torch.linalg.norm(self._position_error[env_ids], dim=1))
-        final_angle_error = torch.mean(torch.linalg.norm(self._angle_error[env_ids], dim=1))
-        final_lin_vel = torch.mean(torch.abs(self._robot.data.root_lin_vel_b[env_ids]), dim=0)
-        final_ang_vel = torch.mean(torch.abs(self._robot.data.root_ang_vel_b[env_ids]), dim=0)
-        final_joint_pos_error = torch.mean(torch.linalg.norm(self._joint_pos_error[env_ids], dim=1))
 
         lin_vel = torch.mean(self._lin_vel)
         ang_vel = torch.mean(self._ang_vel)
@@ -2421,6 +2741,7 @@ class DragonTrackEnv(DirectRLEnv):
         angular_to_goal = torch.mean(self._angular_to_goal)
         joint_pos_to_goal = torch.mean(self._joint_pos_to_goal)
         contact = torch.mean(self._contact)
+        joint_contact = torch.mean(self._joint_contact)
 
         action_thrust_rate = torch.mean(torch.sum(torch.abs(self._action_thrust_rate), dim=1))
         thrust_average = torch.mean(self._action_thrust_force, dim=1)
@@ -2435,6 +2756,7 @@ class DragonTrackEnv(DirectRLEnv):
         joint_smooth = torch.mean(torch.sum(torch.abs(self._joint_smooth), dim=1))
         joint_vibration = torch.mean(torch.sum(self._joint_vibration, dim=1))
         joint_torque = torch.mean(torch.sum(torch.abs(self._joint_torque), dim=1))
+        joint_torque_power = torch.mean(torch.sum(torch.abs(self._joint_torque_power), dim=1))
         joint_torque_limit_violation = torch.mean(torch.sum(self._joint_torque_limit_violation, dim=1))
 
         action_gimbal_rate = torch.mean(torch.sum(torch.abs(self._action_gimbal_rate), dim=1))
@@ -2462,15 +2784,7 @@ class DragonTrackEnv(DirectRLEnv):
         extras["Episode_Termination/died_orientation"] = torch.count_nonzero(self._died_orientation[env_ids]).item()
         extras["Episode_Termination/died_joint"] = torch.count_nonzero(self._died_joint[env_ids]).item()
         extras["Episode_Termination/died_crash"] = torch.count_nonzero(self._died_crash[env_ids]).item()
-        extras["Metrics/final_distance_to_goal"] = final_distance_to_goal.item()
-        extras["Metrics/final_angular_to_goal"] = final_angle_error.item()
-        extras["Metrics/final_joint_pos_error"] = final_joint_pos_error.item()
-        # extras["Metrics/final_lin_vel_x"] = final_lin_vel[0].item()
-        # extras["Metrics/final_lin_vel_y"] = final_lin_vel[1].item()
-        # extras["Metrics/final_lin_vel_z"] = final_lin_vel[2].item()
-        # extras["Metrics/final_ang_vel_x"] = final_ang_vel[0].item()
-        # extras["Metrics/final_ang_vel_y"] = final_ang_vel[1].item()
-        # extras["Metrics/final_ang_vel_z"] = final_ang_vel[2].item()
+        extras["Episode_Termination/died_drift"] = torch.count_nonzero(self._died_drift[env_ids]).item()
 
         extras["Metrics/lin_vel"] = lin_vel.item()
         extras["Metrics/ang_vel"] = ang_vel.item()
@@ -2480,6 +2794,7 @@ class DragonTrackEnv(DirectRLEnv):
         extras["Metrics/angular_to_goal"] = angular_to_goal.item()
         extras["Metrics/joint_pos_to_goal"] = joint_pos_to_goal.item()
         extras["Metrics/contact"] = contact.item()
+        extras["Metrics/joint_contact"] = joint_contact.item()
 
         extras["Metrics/action_thrust_rate"] = action_thrust_rate.item()
         extras["Metrics/thrusts_average"] = thrust_average.item()
@@ -2495,7 +2810,7 @@ class DragonTrackEnv(DirectRLEnv):
         extras["Metrics/joint_vibration"] = joint_vibration.item()
         extras["Metrics/joint_torque"] = joint_torque.item()
         extras["Metrics/joint_torque_limit_violation"] = joint_torque_limit_violation.item()
-
+        extras["Metrics/joint_power"] = joint_torque_power.item()
         extras["Metrics/action_gimbal_rate"] = action_gimbal_rate.item()
         extras["Metrics/gimbal_acc"] = gimbal_acc.item()
         extras["Metrics/gimbal_vel"] = gimbal_vel.item()
@@ -2525,46 +2840,97 @@ class DragonTrackEnv(DirectRLEnv):
         self._foot_contact_sensor.reset(env_ids)
         self._end_contact_sensor.reset(env_ids)
         self._thrust_sensor.reset(env_ids)
+        self._joint_contact_sensor.reset(env_ids)
         self._rotors.reset(env_ids)
+        if self.cfg.decrease_rotor_thrust:
+            # override RotorGroup's per-rotor sample so both rotors of a pair share one scale
+            scale_lower, scale_upper = self.cfg.rotorCfg["thrust_scale"]
+            pair_scale = torch.empty(len(env_ids), self.cfg.paired_rotor_num, device=self.device).uniform_(
+                scale_lower, scale_upper
+            )
+            self._rotors.thrust_scale[env_ids] = self._aars_expand_paired_rotor_actions(pair_scale)
         self.noiseModel.reset(env_ids)
 
         super()._reset_idx(env_ids)
-        if len(env_ids) == self.num_envs:
+        if len(env_ids) == self.num_envs and not self.cfg.evaluate_mode:
             # Spread out the resets to avoid spikes in training when many environments reset at a similar time
             self.episode_length_buf = torch.randint_like(self.episode_length_buf, high=int(self.max_episode_length))
 
         # # Reset States ###########################################################
         # # # # Reference State Initialization (RSI) ===========
-        # Sample a random start phase on the demo clip; the virtual phase in [0, 2*max_index)
-        # also encodes a random play direction (ascending vs. descending part of the triangle wave).
+        # Evaluation starts from the first demo frame. Training/play sample a random virtual phase in
+        # [0, 2*max_index), which also encodes forward/backward playback via the triangle wave.
         m = len(env_ids)
         rcfg = self.randomCfg
-        self._motion_virtual[env_ids] = self._motion.sample_reset_phase(m, min_height=rcfg.rsi_min_height)
-        frame_index, play_sign = self._motion.reflect_phase(self._motion_virtual[env_ids])
-        ref = self._motion.interpolate(frame_index)
-        # Hybrid RSI: replace the (possibly infeasible) target start state with the nearest
-        # dynamically-feasible frame from the real clip (base pose/twist/joint from real; gimbal/thrust
-        # seeded too and consumed by the gimbal/thrust sub-switches below). Downstream code is unchanged.
-        if self.cfg.hybrid_initialization and self._real_motion is not None:
-            ref = self._aars_hybrid_real_ref(frame_index, ref)
+        if multi_trajectory_stage_active:
+            selected_motion_ids = self._motion_library.sample_motion_ids(m)
+        else:
+            selected_motion_ids = torch.full(
+                (m,), self._stage1_motion_id, device=self.device, dtype=torch.long
+            )
+        self._motion_ids[env_ids] = selected_motion_ids
+        self._motion_phase_step[env_ids] = self._motion_library.phase_steps(selected_motion_ids)
+
+        if self.cfg.evaluate_mode:
+            self._motion_virtual[env_ids] = torch.zeros(m, device=self.device, dtype=torch.long)
+        else:
+            self._motion_virtual[env_ids] = self._motion_library.sample_reset_phases(selected_motion_ids)
+        ref, frame_index, play_sign = self._motion_library.query(
+            selected_motion_ids, self._motion_virtual[env_ids]
+        )
+        # Hybrid RSI is defined only for the Stage-1 target, which has a paired dynamically-feasible
+        # real clip. Keep using that paired reset source whenever an env selects the Stage-1 motion,
+        # including after the multi-trajectory stage starts. Other motions retain their target state.
+        stage1_local_ids = torch.nonzero(
+            selected_motion_ids == self._stage1_motion_id, as_tuple=False
+        ).squeeze(-1)
+        stage1_init_ref = None
+        use_hybrid_initialization = (
+            stage1_local_ids.numel() > 0
+            and self.cfg.hybrid_initialization
+            and self._real_motion is not None
+            and not self.cfg.evaluate_mode
+        )
+        if use_hybrid_initialization:
+            stage1_target_ref = {name: value[stage1_local_ids] for name, value in ref.items()}
+            stage1_init_ref = self._aars_hybrid_real_ref(
+                frame_index[stage1_local_ids], stage1_target_ref
+            )
+            for name in ref:
+                ref[name][stage1_local_ids] = stage1_init_ref[name]
+        elif stage1_local_ids.numel() > 0 and (
+            self.cfg.gimbal_init_from_demo or self.cfg.thrust_init_from_demo
+        ):
+            # Optional gimbal/thrust fields exist only on the primary Stage 1 clip. The common
+            # target fields come from the packed library; these reset-only fields use the same
+            # discrete frame indices without interpolation.
+            stage1_init_ref = self._motion.lookup(frame_index[stage1_local_ids])
         play_sign = play_sign.unsqueeze(-1)
 
         # base pose: demo frame (+ env origin) with optional RSI deviation
         ref_pos_w = ref["base_pos_w"] + self._terrain.env_origins[env_ids]
-        ref_pos_w = ref_pos_w + (
-            torch.empty(m, 3, device=self.device).uniform_(-1.0, 1.0) * rcfg.rsi_pos_dev * self._pos_sample_stage
-        )
+        if not self.cfg.evaluate_mode:
+            ref_pos_w = ref_pos_w + (
+                torch.empty(m, 3, device=self.device).uniform_(-1.0, 1.0)
+                * rcfg.rsi_pos_dev
+                * self._pos_sample_stage
+            )
         ref_quat_w = ref["base_quat_w"]
-        ang_axis = torch.randn(m, 3, device=self.device)
-        ang_axis = ang_axis / ang_axis.norm(dim=-1, keepdim=True)
-        ang_range = torch.empty(m, 1, device=self.device).uniform_(-1.0, 1.0) * rcfg.rsi_ang_dev * self._quat_sample_stage
-        delta_quat = quat_from_angle_axis(ang_range.squeeze(1), ang_axis)
-        ref_quat_w = quat_mul(delta_quat, ref_quat_w)
+        if not self.cfg.evaluate_mode:
+            ang_axis = torch.randn(m, 3, device=self.device)
+            ang_axis = ang_axis / ang_axis.norm(dim=-1, keepdim=True)
+            ang_range = (
+                torch.empty(m, 1, device=self.device).uniform_(-1.0, 1.0)
+                * rcfg.rsi_ang_dev
+                * self._quat_sample_stage
+            )
+            delta_quat = quat_from_angle_axis(ang_range.squeeze(1), ang_axis)
+            ref_quat_w = quat_mul(delta_quat, ref_quat_w)
 
         # base twist: demo velocity (reversed when playing backward) with optional RSI deviation
         ref_lin_vel_w = ref["base_lin_vel_w"] * play_sign
         ref_ang_vel_w = ref["base_ang_vel_w"] * play_sign
-        if self.cfg.vel_random_mode and self._vel_random_stage > 0.0:
+        if not self.cfg.evaluate_mode and self.cfg.vel_random_mode and self._vel_random_stage > 0.0:
             ref_lin_vel_w = ref_lin_vel_w + (
                 torch.empty(m, 3, device=self.device).uniform_(-1.0, 1.0)
                 * rcfg.rsi_lin_vel_dev * self._vel_random_stage
@@ -2580,7 +2946,7 @@ class DragonTrackEnv(DirectRLEnv):
         # Pick a fraction of the resetting envs to become static-hover: their reference is frozen at
         # this RSI frame (phase + look-ahead handled in _aars_set_motion_targets) and they start at rest.
         self._static_hover_active[env_ids] = False
-        if self.cfg.static_hover_mode:
+        if not self.cfg.evaluate_mode and self.cfg.static_hover_mode:
             num_to_hover = int(m * self._aars_get_static_hover_rate())
             if num_to_hover > 0:
                 perm = torch.randperm(m, device=self.device)[:num_to_hover]
@@ -2591,7 +2957,7 @@ class DragonTrackEnv(DirectRLEnv):
         init_dof_vel = self._robot.data.default_joint_vel[env_ids]
         init_dof_pos = self._robot.data.default_joint_pos[env_ids]
         init_joint_pos = ref["joint_pos"].clone()
-        if self.cfg.joint_random_mode and self._joint_random_stage > 0.0:
+        if not self.cfg.evaluate_mode and self.cfg.joint_random_mode and self._joint_random_stage > 0.0:
             init_joint_pos = init_joint_pos + (
                 torch.empty_like(init_joint_pos).uniform_(-1.0, 1.0)
                 * rcfg.rsi_joint_dev * self._joint_random_stage
@@ -2600,34 +2966,50 @@ class DragonTrackEnv(DirectRLEnv):
         init_joint_vel = init_dof_vel[:, self._joint_ids[0]]
         init_gimbal_pos = init_dof_pos[:, self._gimbal_ids[0]]
         init_gimbal_vel = init_dof_vel[:, self._gimbal_ids[0]]
-        # initial rotor thrust: from the demo clip (per-rotor, sampled phase) or hover thrust
-        if self.cfg.thrust_init_from_demo and "rotor_thrust" in ref:
-            init_thrust_force = ref["rotor_thrust"].clone()
-        else:
-            init_thrust_force = torch.ones_like(self._action_thrust_force[env_ids]) * self.ctrlCfg.thrust_hover
+        # Initial rotor thrust defaults to hover. Envs using the Stage-1 motion retain the paired
+        # demo thrust even during the multi-trajectory stage.
+        init_thrust_force = torch.ones_like(self._action_thrust_force[env_ids]) * self.ctrlCfg.thrust_hover
+        if (
+            stage1_init_ref is not None
+            and self.cfg.thrust_init_from_demo
+            and "rotor_thrust" in stage1_init_ref
+        ):
+            init_thrust_force[stage1_local_ids] = stage1_init_ref["rotor_thrust"]
 
         # # # # Write to sim ###########################################################
         self._robot.write_root_pose_to_sim(init_root_state[:, :7], env_ids)
         self._robot.write_root_velocity_to_sim(init_root_state[:, 7:], env_ids)
         self._robot.write_joint_state_to_sim(init_joint_pos, init_joint_vel, self._joint_ids[0], env_ids)
 
-        # initial gimbals: sample from the demo clip (at the RSI phase) or compute analytically
-        if self.cfg.gimbal_init_from_demo and "gimbal_pos" in ref:
-            init_gimbal_pos = ref["gimbal_pos"].clone()
-        else:
-            # analytical fallback: orient each rotor so its thrust points up (hover-ready)
-            _ = self._robot.data.body_state_w[env_ids, :, :]  # reset env kinematics
-            links_quats = self._robot.data.body_link_quat_w[env_ids][:, self._link_ids[0]]
+        # Initial gimbals default to the analytical hover-ready pose. Envs using the Stage-1 motion
+        # retain the paired demo gimbals even during the multi-trajectory stage.
+        demo_gimbal_available = (
+            stage1_init_ref is not None
+            and self.cfg.gimbal_init_from_demo
+            and "gimbal_pos" in stage1_init_ref
+        )
+        analytical_gimbal_mask = torch.ones(m, dtype=torch.bool, device=self.device)
+        if demo_gimbal_available:
+            init_gimbal_pos[stage1_local_ids] = stage1_init_ref["gimbal_pos"]
+            analytical_gimbal_mask[stage1_local_ids] = False
+        analytical_local_ids = torch.nonzero(analytical_gimbal_mask, as_tuple=False).squeeze(-1)
+        if analytical_local_ids.numel() > 0:
+            # Analytical fallback: orient each rotor so its thrust points up (hover-ready).
+            analytical_env_ids = env_ids[analytical_local_ids]
+            _ = self._robot.data.body_state_w[analytical_env_ids, :, :]  # reset env kinematics
+            links_quats = self._robot.data.body_link_quat_w[analytical_env_ids][:, self._link_ids[0]]
             gimbal_roll, gimbal_pitch = self._aars_compute_analytical_gimbal_pos(links_quats)
-            init_gimbal_pos[:, 0] = gimbal_roll[:, 0]
-            init_gimbal_pos[:, 1] = gimbal_pitch[:, 0]
-            init_gimbal_pos[:, 2] = gimbal_roll[:, 1]
-            init_gimbal_pos[:, 3] = gimbal_roll[:, 2]
-            init_gimbal_pos[:, 4] = gimbal_pitch[:, 1]
-            init_gimbal_pos[:, 5] = gimbal_pitch[:, 2]
-            init_gimbal_pos[:, 6] = gimbal_roll[:, 3]
-            init_gimbal_pos[:, 7] = gimbal_pitch[:, 3]
-        if self.cfg.gimbal_random_mode and self._gimbal_random_stage > 0.0:
+            analytical_gimbal_pos = init_gimbal_pos[analytical_local_ids].clone()
+            analytical_gimbal_pos[:, 0] = gimbal_roll[:, 0]
+            analytical_gimbal_pos[:, 1] = gimbal_pitch[:, 0]
+            analytical_gimbal_pos[:, 2] = gimbal_roll[:, 1]
+            analytical_gimbal_pos[:, 3] = gimbal_roll[:, 2]
+            analytical_gimbal_pos[:, 4] = gimbal_pitch[:, 1]
+            analytical_gimbal_pos[:, 5] = gimbal_pitch[:, 2]
+            analytical_gimbal_pos[:, 6] = gimbal_roll[:, 3]
+            analytical_gimbal_pos[:, 7] = gimbal_pitch[:, 3]
+            init_gimbal_pos[analytical_local_ids] = analytical_gimbal_pos
+        if not self.cfg.evaluate_mode and self.cfg.gimbal_random_mode and self._gimbal_random_stage > 0.0:
             init_gimbal_pos += (
                 torch.empty_like(init_gimbal_pos).uniform_(-1, 1)
                 * self.randomCfg.rsi_gimbal_dev
@@ -2652,6 +3034,9 @@ class DragonTrackEnv(DirectRLEnv):
         self._actions[env_ids, rotor_action_start:] = (
             paired_rotor_thrust - self.ctrlCfg.thrust_hover
         ) / self.ctrlCfg.thrust_action_scale
+        self._actions_scaled[env_ids] = self._aars_scale_actions_for_observation(
+            self._actions[env_ids]
+        )
         self._last_actions[env_ids] = self._actions[env_ids]
         self._last_last_actions[env_ids] = self._actions[env_ids]
         self._last_action_joint_pos[env_ids] = self._action_joint_pos[env_ids]
@@ -2666,7 +3051,10 @@ class DragonTrackEnv(DirectRLEnv):
         #     * self.randomCfg.rsi_gimbal_dev * self._gimbal_random_stage
         # torch.clamp_(init_gimbal_pos, self._gimbal_lower_pos, self._gimbal_upper_pos)
 
-        self._joint_pos[env_ids] = init_joint_pos
+        init_joint_pos_rel = init_joint_pos - self._joint_default_pos[env_ids]
+        init_gimbal_pos_rel = init_gimbal_pos - self._gimbal_default_pos[env_ids]
+        self._joint_pos[env_ids] = init_joint_pos_rel
+        self._joint_pos_last[env_ids] = init_joint_pos_rel.clone()
         self._joint_vel[env_ids] = init_joint_vel
         self._joint_vel_last[env_ids] = init_joint_vel
         self._joint_acc[env_ids] = 0.0
@@ -2675,7 +3063,8 @@ class DragonTrackEnv(DirectRLEnv):
         self._joint_vibration[env_ids] = 0.0
         self._joint_limit_violation[env_ids] = 0.0
 
-        self._gimbal_pos[env_ids] = init_gimbal_pos
+        self._gimbal_pos[env_ids] = init_gimbal_pos_rel
+        self._gimbal_pos_last[env_ids] = init_gimbal_pos_rel.clone()
         self._gimbal_vel[env_ids] = init_gimbal_vel
         self._gimbal_vel_last[env_ids] = init_gimbal_vel
         self._gimbal_acc[env_ids] = 0.0
@@ -2713,19 +3102,27 @@ class DragonTrackEnv(DirectRLEnv):
         self._angle_error[env_ids] = 0.0
 
         # self._obsPosDelayModel.reset(env_ids, default_root_state[:, :3])
-        # self._obsQuatDelayModel.reset(env_ids, default_root_state[:, 3:7])
+        # self._obsQuatDelayModel.reset(env_ids, init_root_state[:, 3:7])
         # self._obsAngVelDelayModel.reset(env_ids)
         # self._obsLinVelDelayModel.reset(env_ids)
         # self._obsGimbalPosDelayModel.reset(env_ids)
-        self._obsLinVelDelayModel.reset(env_ids, init_root_state[:, 7:10])
         reset_quat = init_root_state[:, 3:7]
+        reset_lin_vel = init_root_state[:, 7:10]
         reset_ang_vel = init_root_state[:, 10:13]
+        reset_lin_vel_b = quat_apply_inverse(reset_quat, reset_lin_vel)
         reset_ang_vel_b = quat_apply_inverse(reset_quat, reset_ang_vel)
+        self._obsLinVelDelayModel.reset(env_ids, reset_lin_vel_b)
         self._obsAngVelDelayModel.reset(env_ids, reset_ang_vel_b)
+        # root link is the IMU link (fc), so the root state is the estimator's reset state
+        self._stateEstimator.reset(
+            env_ids, init_root_state[:, :3], reset_quat, init_root_state[:, 7:10], init_root_state[:, 10:13]
+        )
+        self._est_lin_vel_b[env_ids] = reset_lin_vel_b
+        self._est_ang_vel_b[env_ids] = reset_ang_vel_b
         # obs joint/gimbal are observed relative to the default pose (matches _get_observations)
-        self._obsJointPosDelayModel.reset(env_ids, init_joint_pos - self._joint_default_pos[env_ids])
+        self._obsJointPosDelayModel.reset(env_ids, init_joint_pos_rel)
         self._obsJointVelDelayModel.reset(env_ids, init_joint_vel)
-        self._obsGimbalPosDelayModel.reset(env_ids, init_gimbal_pos - self._gimbal_default_pos[env_ids])
+        self._obsGimbalPosDelayModel.reset(env_ids, init_gimbal_pos_rel)
         self._obsGimbalVelDelayModel.reset(env_ids, init_gimbal_vel)
         # action delay models track absolute joint/gimbal targets
         self._actJointDelayModel.reset(env_ids, init_joint_pos)
@@ -2735,24 +3132,30 @@ class DragonTrackEnv(DirectRLEnv):
         # populate _desired_* and the world-frame look-ahead target buffers for the new phase
         self._aars_set_motion_targets(env_ids)
 
-        # # # # Reset history buffer with the reset `current_obs` frame ===============
-        reset_root_quat_w = init_root_state[:, 3:7]
-        reset_lin_vel_b = quat_apply_inverse(reset_root_quat_w, init_root_state[:, 7:10])
-        reset_ang_vel_b = quat_apply_inverse(reset_root_quat_w, init_root_state[:, 10:13])
-        reset_root_rot_vec = matrix_from_quat(reset_root_quat_w)[:, :2, :].reshape(len(env_ids), 6)
-        reset_action = self._actions[env_ids]
+        # Seed history from the clean reset frame, with no prior-frame position delta.
+        if self.cfg.replace_dof_vel_with_last_pos:
+            reset_joint_dof_obs = torch.zeros_like(init_joint_pos)
+            reset_gimbal_dof_obs = torch.zeros_like(init_gimbal_pos)
+        else:
+            reset_joint_dof_obs = init_joint_vel * self.obsScales.dof_vel
+            reset_gimbal_dof_obs = init_gimbal_vel * self.obsScales.dof_vel
+
+        reset_root_rot_vec = matrix_from_quat(reset_quat)[:, :2, :].reshape(len(env_ids), 6)
         reset_current_obs = torch.cat(
             (
-                init_joint_pos - self._joint_default_pos[env_ids],
-                init_joint_vel * self.obsScales.dof_vel,
-                init_gimbal_pos - self._gimbal_default_pos[env_ids],
-                init_gimbal_vel * self.obsScales.dof_vel,
+                init_joint_pos_rel,
+                reset_joint_dof_obs,
+                init_gimbal_pos_rel,
+                reset_gimbal_dof_obs,
                 reset_root_rot_vec,
                 reset_lin_vel_b * self.obsScales.lin_vel,
                 reset_ang_vel_b * self.obsScales.ang_vel,
-                reset_action,
+                self._actions_scaled[env_ids],
             ),
             dim=-1,
+        )
+        reset_current_obs = torch.clamp(
+            reset_current_obs, -self.ctrlCfg.clip_observations, self.ctrlCfg.clip_observations
         )
         self._observation_buffers[env_ids] = reset_current_obs.unsqueeze(1).expand(
             -1, self.cfg.obs_history_len, -1
