@@ -125,7 +125,7 @@ rlagent:
 
   # ---- scales (training: normalization.obs_scales + control action scales) ----
   # Overridden (with a WARN on mismatch) by the ONNX 'dragon_cfg' metadata when the policy
-  # carries it; together with thrust_hover, replace_dof_vel_with_last_pos, scaled_last_action.
+  # carries it; together with thrust_hover, replace_dof_vel_with_last_pos.
   scales:
     dof_vel: 0.5
     dof_delta: 10.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos

@@ -11,7 +11,8 @@
 //     root_rot6d(6) | lin_vel_b(3)*lin_vel | ang_vel_b(3)*ang_vel |
 //     last_action(18) (raw, or per-group action scale when scaled_last_action) |
 //     history: history_length x history_terms frames [t-1, ..., t-H] (optional) ]
-// Scales/flags come from the YAML, overridden by the ONNX "dragon_cfg" metadata if present.
+// Scales/flags come from the YAML, overridden by the ONNX "dragon_cfg" metadata if present
+// (except scaled_last_action, which is YAML-only).
 // Action: [ joint(6)*joint_act | gimbal(8)*roll/pitch_act | paired per-EDF thrust(4)*thrust_act + hover ]
 //
 
@@ -586,12 +587,10 @@ bool DragonTrackerRLAgent::applyPolicyConfig()
         override_value(key.first, key.second, scales_[key.second]);
       override_value("action_scales.thrust_hover", "thrust_hover", thrust_hover_);
 
+      // scaled_last_action is a deploy-side choice and stays YAML-only.
       double replace = replace_dof_vel_with_last_pos_ ? 1.0 : 0.0;
-      double scaled = scaled_last_action_ ? 1.0 : 0.0;
       override_value("replace_dof_vel_with_last_pos", "replace_dof_vel_with_last_pos", replace);
-      override_value("scaled_last_action", "scaled_last_action", scaled);
       replace_dof_vel_with_last_pos_ = replace > 0.5;
-      scaled_last_action_ = scaled > 0.5;
     }
 
   if (replace_dof_vel_with_last_pos_ != old_replace_dof_vel_with_last_pos)
@@ -645,6 +644,7 @@ bool DragonTrackerRLAgent::checkPolicyLayout() const
           ok = false;
         }
     }
+  // step_dt is check-only: the policy rate always comes from ctrl_loop_du x decimation.
   if (metaNumber(policy_meta_, "step_dt", v))
     {
       const double policy_dt = ctrl_loop_du_ * decimation_;
