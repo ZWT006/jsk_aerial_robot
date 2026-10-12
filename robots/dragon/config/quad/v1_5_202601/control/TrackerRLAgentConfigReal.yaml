@@ -27,7 +27,13 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # deploy-2026-10-01_22-07-58-25k.onnx   # changed delay align with 40Hz
 # policy-2026-10-02_22-17-41-22k.onnx   # multi-trajectory training
 # deploy-2026-10-02_22-17-41-36k.onnx   # gimbal_roll_act = 0.25
-# deploy-2026-10-04_21-43-00-29k.onnx   # gimbal_roll_act = 0.125
+# deploy-2026-10-04_21-43-00-29k.onnx   # gimbal_roll_act = 0.125, ang_vel = 0.2
+
+# -------- scaled action, ang_vel = 1.0 -------------------------------------
+# policy-2026-10-08_14-41-03-30k.onnx   # 
+# -------- thrust_limit 14.5 ------------------------------------------------
+# policy-2026-10-09_20-57-20-30k.onnx   # estimator,
+# policy-2026-10-11_22-48-16-49k.onnx   # history mode
 
 # rosservice call /dragon/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
@@ -75,7 +81,7 @@ rlagent:
   replace_dof_vel_with_last_pos: true
   # Feed last_action scaled per group (joint*joint_act | gimbal*roll/pitch_act |
   # thrust*thrust_act*thrust_obs), as _aars_scale_actions_for_observation in training.
-  scaled_last_action: true
+  scaled_last_action: false
 
   # ---- actuator layout (sim order; must match training) ----
   joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]

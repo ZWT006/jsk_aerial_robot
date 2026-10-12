@@ -1,0 +1,283 @@
+
+# 2026-10-04_21-43-00 -------------------------------------------------------
+
+rlagent:
+  onnx_model_path: "policy/deploy-2026-10-04_21-43-00-40k.onnx"
+  decimation: 5
+
+  # ---- target-state FIFO ----
+  target_state_topic: "full_state_target"
+  target_obs_horizon: 5
+  target_obs: [root_pos, root_rot_vec, joint_pos]
+
+  # ---- observation/action composition ----
+  # Available observation terms:
+  #   target_obs_history, joint_pos, joint_vel, gimbal_pos, gimbal_vel,
+  #   root_rot_vec, lin_vel, ang_vel, last_action
+  observations: [
+    target_obs_history,
+    joint_pos,
+    joint_vel,
+    gimbal_pos,
+    gimbal_vel,
+    root_rot_vec,
+    lin_vel,
+    ang_vel,
+    last_action
+  ]
+  # History (training history_mode): obs = observations | history_length x history_terms,
+  # past frames ordered [t-1, ..., t-H]. To match training, history_terms = every
+  # observations term except target_obs_history, and history_length = obs_history_len.
+  history_length: 1
+  history_terms: []
+  actions: [joint, gimbal, thrust]
+
+  # ---- observation source ----
+  ideal_obs: false
+  ideal_obs_topic: "/dragon/ground_truth" # /dragon/ground_truth, /dragon/uav/baselink/odom
+  ideal_pos_obs: false
+  ideal_quat_obs: true
+  ideal_lin_vel_obs: false
+  ideal_ang_vel_obs: true
+  ideal_delay: 4
+  # Put previous policy-step positions into dof_vel observation slots.
+  replace_dof_vel_with_last_pos: true
+  # Feed last_action scaled per group (joint*joint_act | gimbal*roll/pitch_act |
+  # thrust*thrust_act*thrust_obs), as _aars_scale_actions_for_observation in training.
+  scaled_last_action: false
+
+  # ---- actuator layout (sim order; must match training) ----
+  joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
+  gimbal_names: [gimbal2_roll, gimbal2_pitch, gimbal1_roll, gimbal3_roll,
+                 gimbal1_pitch, gimbal3_pitch, gimbal4_roll, gimbal4_pitch]
+  thrust_pair_names: [edf2, edf1, edf3, edf4]
+  # joint_default: {joint1_yaw: 0.0}
+  # gimbal_default: {gimbal1_roll: 0.0}
+
+  # ---- command gates / shaping ----
+  enable_thrust: true
+  enable_joint: false
+  enable_gimbal: false
+  joint_effort_ctrl: true
+  gimbal_effort_ctrl: true
+  thrust_hover: 8.5
+  thrust_limit: 16.0
+  thrust_scale: 1.0  # actual thrust always smaller than the commanded value
+  # Clamp scaled joint/gimbal targets without changing action_ or last_action.
+  action_clamp: false
+  joint_limit: 1.57
+  gimbal_roll_limit: 3.14
+  gimbal_pitch_limit: 3.14
+  joint_target_delay_steps: 0
+  gimbal_target_delay_steps: 0
+  thrust_target_delay_steps: 1
+
+  # ---- logging ----
+  rlagent_verbose: true
+  rlagent_debug: true
+  rlagent_forward_info: true
+
+  # ---- scales (training: normalization.obs_scales + control action scales) ----
+  # Overridden (with a WARN on mismatch) by the ONNX 'dragon_cfg' metadata when the policy
+  # carries it; together with thrust_hover, replace_dof_vel_with_last_pos, scaled_last_action.
+  scales:
+    dof_vel: 0.5
+    dof_delta: 1.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
+    lin_vel: 1.0
+    ang_vel: 0.2
+    thrust_obs: 0.1   # obs_scales.thrust, applied to last_action thrust only
+    joint_act: 0.15
+    gimbal_roll_act: 0.125
+    gimbal_pitch_act: 0.25
+    thrust_act: 0.5
+    clip_observation: 100.0
+    clip_action: 100.0
+
+# 2026-10-08_14-41-03 -------------------------------------------------------
+
+rlagent:
+  onnx_model_path: "policy/policy-2026-10-08_14-41-03-30k.onnx"
+  decimation: 5
+
+  # ---- target-state FIFO ----
+  target_state_topic: "full_state_target"
+  target_obs_horizon: 5
+  target_obs: [root_pos, root_rot_vec, joint_pos]
+
+  # ---- observation/action composition ----
+  # Available observation terms:
+  #   target_obs_history, joint_pos, joint_vel, gimbal_pos, gimbal_vel,
+  #   root_rot_vec, lin_vel, ang_vel, last_action
+  observations: [
+    target_obs_history,
+    joint_pos,
+    joint_vel,
+    gimbal_pos,
+    gimbal_vel,
+    root_rot_vec,
+    lin_vel,
+    ang_vel,
+    last_action
+  ]
+  # History (training history_mode): obs = observations | history_length x history_terms,
+  # past frames ordered [t-1, ..., t-H]. To match training, history_terms = every
+  # observations term except target_obs_history, and history_length = obs_history_len.
+  history_length: 1
+  history_terms: []
+  actions: [joint, gimbal, thrust]
+
+  # ---- observation source ----
+  ideal_obs: false
+  ideal_obs_topic: "/dragon/ground_truth" # /dragon/ground_truth, /dragon/uav/baselink/odom
+  ideal_pos_obs: false
+  ideal_quat_obs: true
+  ideal_lin_vel_obs: false
+  ideal_ang_vel_obs: true
+  ideal_delay: 4
+  # Put previous policy-step positions into dof_vel observation slots.
+  replace_dof_vel_with_last_pos: true
+  # Feed last_action scaled per group (joint*joint_act | gimbal*roll/pitch_act |
+  # thrust*thrust_act*thrust_obs), as _aars_scale_actions_for_observation in training.
+  scaled_last_action: true
+
+  # ---- actuator layout (sim order; must match training) ----
+  joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
+  gimbal_names: [gimbal2_roll, gimbal2_pitch, gimbal1_roll, gimbal3_roll,
+                 gimbal1_pitch, gimbal3_pitch, gimbal4_roll, gimbal4_pitch]
+  thrust_pair_names: [edf2, edf1, edf3, edf4]
+  # joint_default: {joint1_yaw: 0.0}
+  # gimbal_default: {gimbal1_roll: 0.0}
+
+  # ---- command gates / shaping ----
+  enable_thrust: true
+  enable_joint: false
+  enable_gimbal: false
+  joint_effort_ctrl: true
+  gimbal_effort_ctrl: true
+  thrust_hover: 8.5
+  thrust_limit: 16.0
+  thrust_scale: 1.0  # actual thrust always smaller than the commanded value
+  # Clamp scaled joint/gimbal targets without changing action_ or last_action.
+  action_clamp: false
+  joint_limit: 1.57
+  gimbal_roll_limit: 3.14
+  gimbal_pitch_limit: 3.14
+  joint_target_delay_steps: 0
+  gimbal_target_delay_steps: 0
+  thrust_target_delay_steps: 1
+
+  # ---- logging ----
+  rlagent_verbose: true
+  rlagent_debug: true
+  rlagent_forward_info: true
+
+  # ---- scales (training: normalization.obs_scales + control action scales) ----
+  # Overridden (with a WARN on mismatch) by the ONNX 'dragon_cfg' metadata when the policy
+  # carries it; together with thrust_hover, replace_dof_vel_with_last_pos, scaled_last_action.
+  scales:
+    dof_vel: 0.5
+    dof_delta: 10.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
+    lin_vel: 1.0
+    ang_vel: 1.0
+    thrust_obs: 0.1   # obs_scales.thrust, applied to last_action thrust only
+    joint_act: 0.15
+    gimbal_roll_act: 0.125
+    gimbal_pitch_act: 0.25
+    thrust_act: 0.5
+    clip_observation: 100.0
+    clip_action: 100.0
+
+
+# 2026-10-09_20-57-20 ---------------------------------------------------------------
+
+rlagent:
+  onnx_model_path: "policy/policy-2026-10-09_20-57-20-30k.onnx"
+  decimation: 5
+
+  # ---- target-state FIFO ----
+  target_state_topic: "full_state_target"
+  target_obs_horizon: 5
+  target_obs: [root_pos, root_rot_vec, joint_pos]
+
+  # ---- observation/action composition ----
+  # Available observation terms:
+  #   target_obs_history, joint_pos, joint_vel, gimbal_pos, gimbal_vel,
+  #   root_rot_vec, lin_vel, ang_vel, last_action
+  observations: [
+    target_obs_history,
+    joint_pos,
+    joint_vel,
+    gimbal_pos,
+    gimbal_vel,
+    root_rot_vec,
+    lin_vel,
+    ang_vel,
+    last_action
+  ]
+  # History (training history_mode): obs = observations | history_length x history_terms,
+  # past frames ordered [t-1, ..., t-H]. To match training, history_terms = every
+  # observations term except target_obs_history, and history_length = obs_history_len.
+  history_length: 1
+  history_terms: []
+  actions: [joint, gimbal, thrust]
+
+  # ---- observation source ----
+  ideal_obs: false
+  ideal_obs_topic: "/dragon/ground_truth" # /dragon/ground_truth, /dragon/uav/baselink/odom
+  ideal_pos_obs: false
+  ideal_quat_obs: true
+  ideal_lin_vel_obs: false
+  ideal_ang_vel_obs: true
+  ideal_delay: 4
+  # Put previous policy-step positions into dof_vel observation slots.
+  replace_dof_vel_with_last_pos: true
+  # Feed last_action scaled per group (joint*joint_act | gimbal*roll/pitch_act |
+  # thrust*thrust_act*thrust_obs), as _aars_scale_actions_for_observation in training.
+  scaled_last_action: true
+
+  # ---- actuator layout (sim order; must match training) ----
+  joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
+  gimbal_names: [gimbal2_roll, gimbal2_pitch, gimbal1_roll, gimbal3_roll,
+                 gimbal1_pitch, gimbal3_pitch, gimbal4_roll, gimbal4_pitch]
+  thrust_pair_names: [edf2, edf1, edf3, edf4]
+  # joint_default: {joint1_yaw: 0.0}
+  # gimbal_default: {gimbal1_roll: 0.0}
+
+  # ---- command gates / shaping ----
+  enable_thrust: true
+  enable_joint: false
+  enable_gimbal: false
+  joint_effort_ctrl: true
+  gimbal_effort_ctrl: true
+  thrust_hover: 8.5
+  thrust_limit: 14.5
+  thrust_scale: 1.0  # actual thrust always smaller than the commanded value
+  # Clamp scaled joint/gimbal targets without changing action_ or last_action.
+  action_clamp: false
+  joint_limit: 1.57
+  gimbal_roll_limit: 3.14
+  gimbal_pitch_limit: 3.14
+  joint_target_delay_steps: 0
+  gimbal_target_delay_steps: 0
+  thrust_target_delay_steps: 1
+
+  # ---- logging ----
+  rlagent_verbose: true
+  rlagent_debug: true
+  rlagent_forward_info: true
+
+  # ---- scales (training: normalization.obs_scales + control action scales) ----
+  # Overridden (with a WARN on mismatch) by the ONNX 'dragon_cfg' metadata when the policy
+  # carries it; together with thrust_hover, replace_dof_vel_with_last_pos, scaled_last_action.
+  scales:
+    dof_vel: 0.5
+    dof_delta: 10.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
+    lin_vel: 1.0
+    ang_vel: 1.0
+    thrust_obs: 0.1   # obs_scales.thrust, applied to last_action thrust only
+    joint_act: 0.15
+    gimbal_roll_act: 0.125
+    gimbal_pitch_act: 0.25
+    thrust_act: 0.5
+    clip_observation: 100.0
+    clip_action: 100.0
