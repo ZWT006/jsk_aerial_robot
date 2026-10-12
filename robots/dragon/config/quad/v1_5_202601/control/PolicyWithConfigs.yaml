@@ -58,8 +58,8 @@ rlagent:
   enable_thrust: true
   enable_joint: false
   enable_gimbal: false
-  joint_effort_ctrl: true
-  gimbal_effort_ctrl: true
+  joint_effort_ctrl: false
+  gimbal_effort_ctrl: false
   thrust_hover: 8.5
   thrust_limit: 16.0
   thrust_scale: 1.0  # actual thrust always smaller than the commanded value
@@ -70,7 +70,7 @@ rlagent:
   gimbal_pitch_limit: 3.14
   joint_target_delay_steps: 0
   gimbal_target_delay_steps: 0
-  thrust_target_delay_steps: 1
+  thrust_target_delay_steps: 0
 
   # ---- logging ----
   rlagent_verbose: true
@@ -96,7 +96,7 @@ rlagent:
 # 2026-10-08_14-41-03 -------------------------------------------------------
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-08_14-41-03-30k.onnx"
+  onnx_model_path: "policy/deploy-2026-10-08_14-41-03-30k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -152,8 +152,8 @@ rlagent:
   enable_thrust: true
   enable_joint: false
   enable_gimbal: false
-  joint_effort_ctrl: true
-  gimbal_effort_ctrl: true
+  joint_effort_ctrl: false
+  gimbal_effort_ctrl: false
   thrust_hover: 8.5
   thrust_limit: 16.0
   thrust_scale: 1.0  # actual thrust always smaller than the commanded value
@@ -164,7 +164,7 @@ rlagent:
   gimbal_pitch_limit: 3.14
   joint_target_delay_steps: 0
   gimbal_target_delay_steps: 0
-  thrust_target_delay_steps: 1
+  thrust_target_delay_steps: 0
 
   # ---- logging ----
   rlagent_verbose: true
@@ -247,8 +247,8 @@ rlagent:
   enable_thrust: true
   enable_joint: false
   enable_gimbal: false
-  joint_effort_ctrl: true
-  gimbal_effort_ctrl: true
+  joint_effort_ctrl: false
+  gimbal_effort_ctrl: false
   thrust_hover: 8.5
   thrust_limit: 14.5
   thrust_scale: 1.0  # actual thrust always smaller than the commanded value
@@ -259,7 +259,7 @@ rlagent:
   gimbal_pitch_limit: 3.14
   joint_target_delay_steps: 0
   gimbal_target_delay_steps: 0
-  thrust_target_delay_steps: 1
+  thrust_target_delay_steps: 0
 
   # ---- logging ----
   rlagent_verbose: true
