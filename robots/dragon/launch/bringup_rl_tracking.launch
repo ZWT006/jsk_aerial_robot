@@ -30,7 +30,7 @@
   <arg name="direct_model_name" />
   <arg name="spawn_x" default="0.0"/>
   <arg name="spawn_y" default="0.0"/>
-  <arg name="spawn_z" default="0.0"/>
+  <arg name="spawn_z" default="0.10"/>
   <arg name="spawn_yaw" default="0.0"/>
   <arg name="spawn_joint_args" default="-J joint1_yaw 1.57 -J joint2_yaw 1.57 -J joint3_yaw 1.57" />
   <arg name="mujoco" default="False" />

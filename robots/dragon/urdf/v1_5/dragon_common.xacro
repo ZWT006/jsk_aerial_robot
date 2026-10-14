@@ -22,14 +22,30 @@
   <xacro:property name="max_force" value="30" /> <!-- [N] -->
   <xacro:property name="min_force" value="2" /> <!-- [N] -->
 
-  <xacro:macro name="link_model" params="type">
+  <!-- visual materials -->
+  <material name="dragon_carbon_gray">
+    <color rgba="0.13 0.15 0.17 1"/>
+  </material>
+  <material name="dragon_matte_silver">
+    <color rgba="0.58 0.61 0.64 1"/>
+  </material>
+  <material name="dragon_gloss_blue">
+    <color rgba="0.03 0.24 0.65 1"/>
+  </material>
+  <material name="dragon_smoked_black">
+    <color rgba="0.08 0.10 0.12 0.58"/>
+  </material>
+  <material name="dragon_battery_blue">
+    <color rgba="0 0 0.8 1"/>
+  </material>
 
-    <!-- box collision geometry does not work well for FCL -->
+  <!-- collision: cylinder along the CFRP pipe -->
+  <xacro:macro name="link_model" params="type collision_length collision_x">
     <collision>
-    <origin rpy="0 0 0" xyz="${link_length* 0.5} 0 0"/>
-    <geometry>
-    <box size="${link_length} 0.15 0.1686"/>
-    </geometry>
+      <origin rpy="0 ${pi/2} 0" xyz="${collision_x} 0 0"/>
+      <geometry>
+        <cylinder length="${collision_length}" radius="0.02"/>
+      </geometry>
     </collision>
 
     <visual>
@@ -37,10 +53,11 @@
       <geometry>
         <mesh filename="package://dragon/urdf/v1_5/mesh/${type}.stl"/>
       </geometry>
+      <material name="dragon_carbon_gray"/>
     </visual>
   </xacro:macro>
 
-  <xacro:macro name="extra_module" params="name parent *origin *inertial visible:=0 model_url:=1 scale:=1 visual_x:=0 visual_y:=0 visual_z:=0 visual_roll:=0 visual_pitch:=0 visual_yaw:=0">
+  <xacro:macro name="extra_module" params="name parent *origin *inertial visible:=0 model_url:=1 scale:=1 visual_x:=0 visual_y:=0 visual_z:=0 visual_roll:=0 visual_pitch:=0 visual_yaw:=0 material_name:=none collision_box:=none collision_xyz:='0 0 0'">
     <joint name="${parent}2${name}" type="fixed">
       <parent link="${parent}"/>
       <child link="${name}"/>
@@ -54,8 +71,44 @@
           <geometry>
             <mesh filename="${model_url}" scale= "${scale} ${scale} ${scale}"/>
           </geometry>
+          <xacro:if value="${material_name != 'none'}">
+            <material name="${material_name}"/>
+          </xacro:if>
         </visual>
       </xacro:if>
+      <xacro:if value="${collision_box != 'none'}">
+        <collision>
+          <origin rpy="0 0 0" xyz="${collision_xyz}"/>
+          <geometry>
+            <box size="${collision_box}"/>
+          </geometry>
+        </collision>
+      </xacro:if>
+    </link>
+  </xacro:macro>
+
+  <!-- collision-only link on a fixed joint -->
+  <xacro:macro name="collider_link" params="name parent xyz rpy:='0 0 0' *geometry">
+    <joint name="${name}_mount" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}"/>
+      <origin rpy="0 0 0" xyz="${xyz}"/>
+    </joint>
+    <link name="${name}">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.00001"/>
+        <inertia
+            ixx="0.000001" ixy="0.0" ixz="0.0"
+            iyy="0.000001" iyz="0.0"
+            izz="0.000002"/>
+      </inertial>
+      <collision>
+        <origin rpy="${rpy}" xyz="0 0 0"/>
+        <geometry>
+          <xacro:insert_block name="geometry" />
+        </geometry>
+      </collision>
     </link>
   </xacro:macro>
 

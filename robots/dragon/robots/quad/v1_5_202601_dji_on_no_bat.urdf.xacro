@@ -15,9 +15,12 @@
   <xacro:dji_on_dragon_module />
 
   <!-- Livox MID360 -->
-  <xacro:extra_module name = "livox_mid360" parent = "link2" visible = "1"
-                      model_url = "package://dragon/urdf/v1_5/mesh/sensor/livox_mid360_v1_5.stl" >
+  <joint name="link22livox_mid360" type="fixed">
+    <parent link="link2"/>
+    <child link="livox_mid360"/>
     <origin xyz="0.132 0.0 0.05592" rpy="0 0 0"/>
+  </joint>
+  <link name="livox_mid360">
     <inertial>
       <origin xyz="0.0068 0.0 -0.0066" rpy="0 0 0"/>
       <mass value="0.2988"/>
@@ -25,7 +28,22 @@
           ixx="0.00018" iyy="0.00068" izz="0.00061"
           ixy="0.0" ixz="-0.0001" iyz="0.0"/>
     </inertial>
-  </xacro:extra_module>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="package://dragon/urdf/v1_5/mesh/sensor/livox_mid360_v1_5.stl"/>
+      </geometry>
+      <material name="dragon_matte_silver"/>
+    </visual>
+    <!-- optical window -->
+    <visual name="livox_dome_visual">
+      <origin rpy="0 0 0" xyz="0 0 0.009"/>
+      <geometry>
+        <sphere radius="0.0266"/>
+      </geometry>
+      <material name="dragon_gloss_blue"/>
+    </visual>
+  </link>
 
   <xacro:extra_module name = "lidar_imu" parent = "livox_mid360" visible = "0" >
     <origin xyz="0.011 0.02329 ${-0.02592 + 0.047 -0.04412}" rpy="0 0 0"/>

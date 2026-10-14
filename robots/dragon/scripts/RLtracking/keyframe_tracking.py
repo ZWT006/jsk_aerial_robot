@@ -30,7 +30,8 @@ YAML format:
       - pos: [...]
         duration: 5.0   # time (s) to travel from previous keyframe
         vel: [vx, vy, vz]      # optional: velocity at this keyframe
-        omega: [wx, wy, wz]    # optional: angular velocity at this keyframe
+        omega: [dr, dp, dy]    # optional: rpy rate at this keyframe (spline tangent);
+                               # output twist / base_ang_vel_w are converted to world-frame omega
         joint_vel: [...]       # optional: joint velocity at this keyframe
       - duration: 5.0          # transition time from the previous keyframe
         geometry:
@@ -148,6 +149,18 @@ def _hermite_dot(p0, p1, m0, m1, T, t):
     s = t / T
     return (((6*s**2 - 6*s) / T)*p0 + (3*s**2 - 4*s + 1)*m0 +
             ((6*s - 6*s**2) / T)*p1 + (3*s**2 - 2*s)*m1)
+
+
+def _rpy_rate_to_world_omega(rpy, rpy_dot):
+    """Map rpy rates to world-frame angular velocity for R = Rz(y) Ry(p) Rx(r) (tft 'sxyz')."""
+    rpy = np.atleast_2d(rpy)
+    rpy_dot = np.atleast_2d(rpy_dot)
+    p, y = rpy[:, 1], rpy[:, 2]
+    dr, dp, dy = rpy_dot[:, 0], rpy_dot[:, 1], rpy_dot[:, 2]
+    cp, sp, cy, sy = np.cos(p), np.sin(p), np.cos(y), np.sin(y)
+    return np.stack([cy*cp*dr - sy*dp,
+                     sy*cp*dr + cy*dp,
+                     -sp*dr + dy], axis=-1)
 
 
 def _as_array(value, length, name):
@@ -347,7 +360,11 @@ def build_trajectory(items):
     vels.append(_vel_from_keyframe(current_kf))
     times.append(t0)
 
-    return np.array(states), np.array(vels), np.array(times)
+    # Splines are built in rpy-rate space; convert to world-frame angular velocity
+    # so published twist.angular and saved base_ang_vel_w are true omega_w.
+    states, vels = np.array(states), np.array(vels)
+    vels[:, 3:6] = _rpy_rate_to_world_omega(states[:, 3:6], vels[:, 3:6])
+    return states, vels, np.array(times)
 
 
 def _make_msg(state, vel, orientation_quat=None):

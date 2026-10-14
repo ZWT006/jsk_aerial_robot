@@ -16,7 +16,7 @@
               ixx="0.0003" iyy="0.0073" izz=" 0.0074"
               ixy="-0.0005" ixz="0.0002" iyz="0.0000"/>
         </inertial>
-        <xacro:link_model type="head_link" />
+        <xacro:link_model type="head_link" collision_length="0.35" collision_x="0.232"/>
       </xacro:if>
       <xacro:unless value="${self == 1}">
 
@@ -29,7 +29,7 @@
                 ixx="0.0003" iyy="0.0078" izz="0.0076"
                 ixy="0.0000" ixz="-0.0006" iyz="0.0000"/>
           </inertial>
-          <xacro:link_model type="end_link" />
+          <xacro:link_model type="end_link" collision_length="0.36" collision_x="0.247"/>
         </xacro:if>
         <xacro:unless value="${self == child}">
 
@@ -42,7 +42,7 @@
                   ixx="0.0007" iyy="0.0195" izz="0.0190"
                   ixy="-0.0009" ixz="-0.0013" iyz="0.0000"/>
             </inertial>
-            <xacro:link_model type="base_link" />
+            <xacro:link_model type="base_link" collision_length="0.32" collision_x="0.242"/>
           </xacro:if>
 
           <!-- general -->
@@ -54,7 +54,7 @@
                   ixx="0.0006" iyy="0.0171" izz="0.0170"
                   ixy="-0.0010" ixz="-0.0010" iyz="0.0001"/>
             </inertial>
-            <xacro:link_model type="general_link" />
+            <xacro:link_model type="general_link" collision_length="0.32" collision_x="0.242"/>
           </xacro:unless>
         </xacro:unless>
       </xacro:unless>
@@ -84,13 +84,14 @@
         <geometry>
           <mesh filename="package://dragon/urdf/v1_5/mesh/gimbal_roll.stl"/>
         </geometry>
+        <material name="dragon_carbon_gray"/>
       </visual>
 
-      <!-- cylinder collision geometry works well for FCL -->
+      <!-- roll servo housing -->
       <collision>
-        <origin rpy="${pi/2} 0 0" xyz="0 0 0.02"/>
+        <origin rpy="0 0 0" xyz="${gimbal_roll_x_offset - 0.02} 0 0.06"/>
         <geometry>
-          <cylinder length="0.3" radius="0.09" />
+          <box size="0.06 0.06 0.06"/>
         </geometry>
       </collision>
 
@@ -119,6 +120,7 @@
         <geometry>
           <mesh filename="package://dragon/urdf/v1_5/mesh/gimbal_pitch.stl"/>
         </geometry>
+        <material name="dragon_smoked_black"/>
       </visual>
     </link>
 
@@ -146,7 +148,7 @@
     <joint name="edf${self}_left_mount" type="fixed">
       <child link="edf${self}_left"/>
       <parent link="gimbal${self}_pitch_module"/>
-      <origin rpy="0 0 0" xyz="0 0.1115 0 "/>
+      <origin rpy="0 0 0" xyz="0 0.120 0 "/>
       <axis xyz="0 0 1"/>
     </joint>
     <link name="edf${self}_left">
@@ -158,11 +160,18 @@
             iyy="0.000001" iyz="0.0"
             izz="0.000002"/>
       </inertial>
+      <!-- duct -->
+      <collision>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <geometry>
+          <cylinder length="0.06" radius="0.075"/>
+        </geometry>
+      </collision>
     </link>
     <joint name="edf${self}_right_mount" type="fixed">
       <child link="edf${self}_right"/>
       <parent link="gimbal${self}_pitch_module"/>
-      <origin rpy="0 0 0" xyz="0 -0.1115 0 "/>
+      <origin rpy="0 0 0" xyz="0 -0.120 0 "/>
       <axis xyz="0 0 1"/>
     </joint>
     <link name="edf${self}_right">
@@ -174,6 +183,13 @@
             iyy="0.000001" iyz="0.0"
             izz="0.000002"/>
       </inertial>
+      <!-- duct -->
+      <collision>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+        <geometry>
+          <cylinder length="0.06" radius="0.075"/>
+        </geometry>
+      </collision>
     </link>
 
     <xacro:damping_factor link ="thrust${self}"/>
@@ -203,7 +219,15 @@
           <geometry>
             <mesh filename="package://dragon/urdf/v1_5/mesh/inter_joint_junction.stl"/>
           </geometry>
+          <material name="dragon_carbon_gray"/>
         </visual>
+        <!-- foot -->
+        <collision>
+          <origin rpy="0 0 0" xyz="${2 * inter_joint_x_offset} 0 -0.055"/>
+          <geometry>
+            <cylinder length="0.060" radius="0.0145"/>
+          </geometry>
+        </collision>
       </link>
 
       <joint name="joint${self}_yaw" type="revolute">
@@ -216,13 +240,79 @@
       </joint>
 
       <gazebo reference="inter_joint${self}">
-        <mu1>0.2</mu1>
-        <mu2>0.2</mu2>
+        <mu1>0.8</mu1>
+        <mu2>0.8</mu2>
       </gazebo>
+
+      <!-- joint stop colliders (first contact at ~93 deg). Separate links, since
+           bodies connected by a joint never collide. Needs merge_fixed_joints=False -->
+      <!-- pitch servo frame -->
+      <xacro:collider_link name="j${self}_pitch_frame" parent="link${self}"
+                           xyz="${link_length - 0.04075} 0 0">
+        <box size="0.0465 0.042 0.041"/>
+      </xacro:collider_link>
+      <!-- center plate: stop for both joints -->
+      <xacro:collider_link name="j${self}_center_plate" parent="inter_joint${self}"
+                           xyz="${inter_joint_x_offset} 0 0">
+        <box size="0.0085 0.043 0.043"/>
+      </xacro:collider_link>
+      <!-- yaw servo frame -->
+      <xacro:collider_link name="j${self}_yaw_frame" parent="link${child}"
+                           xyz="0.04125 0 0.027">
+        <box size="0.0475 0.041 0.096"/>
+      </xacro:collider_link>
 
     </xacro:unless>
 
+    <!-- tail foot -->
+    <xacro:if value="${self == child}">
+      <link name="back_end">
+        <inertial>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
+          <mass value="0.00001"/>
+          <inertia
+              ixx="0.000001" ixy="0.0" ixz="0.0"
+              iyy="0.000001" iyz="0.0"
+              izz="0.000002"/>
+        </inertial>
+        <collision>
+          <origin rpy="0 0 0" xyz="0 0 -0.025"/>
+          <geometry>
+            <cylinder length="0.12" radius="0.015"/>
+          </geometry>
+        </collision>
+      </link>
+      <joint name="link_back" type="fixed">
+        <parent link="link${self}"/>
+        <child link="back_end"/>
+        <origin rpy="0 0 0" xyz="0.45 0 0"/>
+      </joint>
+    </xacro:if>
+
     <xacro:if value="${self == 1}">
+      <!-- head foot -->
+      <link name="front_end">
+        <inertial>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
+          <mass value="0.00001"/>
+          <inertia
+              ixx="0.000001" ixy="0.0" ixz="0.0"
+              iyy="0.000001" iyz="0.0"
+              izz="0.000002"/>
+        </inertial>
+        <collision>
+          <origin rpy="0 0 0" xyz="0.02 0 -0.055"/>
+          <geometry>
+            <cylinder length="0.06" radius="0.0145"/>
+          </geometry>
+        </collision>
+      </link>
+      <joint name="link_front" type="fixed">
+        <parent link="link${self}"/>
+        <child link="front_end"/>
+        <origin rpy="0 0 0" xyz="0 0 0"/>
+      </joint>
+
       <!-- dummy root link for KDL -->
       <link name="root">
         <inertial>
@@ -262,10 +352,12 @@
       </joint>
     </xacro:if>
 
-    <!-- add battery -->
+    <!-- add battery; collision is lowered to the feet level -->
     <xacro:if value="${battery}">
       <xacro:extra_module name="battery${self}" parent="link${self}" visible="1"
-                         model_url = "package://dragon/urdf/v1_5/mesh/battery.stl">
+                         model_url = "package://dragon/urdf/v1_5/mesh/battery.stl"
+                         material_name="dragon_battery_blue" collision_box="0.126 0.048 0.048"
+                         collision_xyz="0 0 -0.013">
         <origin xyz="0.1023 0.0 -0.048" rpy="0 0 0"/>
         <inertial>
           <origin xyz="0 0 0" rpy="0 0 0"/>

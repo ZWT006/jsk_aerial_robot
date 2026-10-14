@@ -39,7 +39,7 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 #   "policy_name: 'policy/policy-2026-10-04_21-43-00-26k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-11_22-48-16-49k.onnx"
+  onnx_model_path: "policy/policy-2026-10-09_20-57-20-30k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -67,14 +67,14 @@ rlagent:
   # observations term except target_obs_history, and history_length = obs_history_len.
   history_length: 4
   history_terms: [
-    joint_pos,
-    joint_vel,
-    gimbal_pos,
-    gimbal_vel,
-    root_rot_vec,
-    lin_vel,
-    ang_vel,
-    last_action
+    # joint_pos,
+    # joint_vel,
+    # gimbal_pos,
+    # gimbal_vel,
+    # root_rot_vec,
+    # lin_vel,
+    # ang_vel,
+    # last_action
   ]
   actions: [joint, gimbal, thrust]
 
