@@ -30,10 +30,10 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # deploy-2026-10-04_21-43-00-29k.onnx   # gimbal_roll_act = 0.125, ang_vel = 0.2
 
 # -------- scaled action, ang_vel = 1.0 -------------------------------------
-# policy-2026-10-08_14-41-03-30k.onnx   # 
+# deploy-2026-10-08_14-41-03-30k.onnx   # 
 # -------- thrust_limit 14.5 ------------------------------------------------
-# policy-2026-10-09_20-57-20-30k.onnx   # estimator,
-# policy-2026-10-11_22-48-16-49k.onnx   # history mode
+# deploy-2026-10-09_20-57-20-30k.onnx   # estimator,
+# deploy-2026-10-11_22-48-16-49k.onnx   # history mode
 
 # rosservice call /dragon/rlagent/reload_policy \
 #   "policy_name: 'policy/policy-2026-07-23_21-18-16-25k.onnx'"
@@ -119,9 +119,9 @@ rlagent:
   # carries it; together with thrust_hover, replace_dof_vel_with_last_pos.
   scales:
     dof_vel: 0.5
-    dof_delta: 10.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
+    dof_delta: 1.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
     lin_vel: 1.0
-    ang_vel: 1.0
+    ang_vel: 0.2
     thrust_obs: 0.1   # obs_scales.thrust, applied to last_action thrust only
     joint_act: 0.15
     gimbal_roll_act: 0.125

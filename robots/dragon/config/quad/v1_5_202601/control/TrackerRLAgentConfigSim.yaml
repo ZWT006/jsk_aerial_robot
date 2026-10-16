@@ -34,12 +34,17 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 # -------- thrust_limit 14.5 ------------------------------------------------
 # policy-2026-10-09_20-57-20-30k.onnx   # estimator,
 # policy-2026-10-11_22-48-16-49k.onnx   # history mode
+# back baseline
+# policy-2026-10-12_20-18-42-30k.onnx
+# policy-2026-10-12_21-23-15-30k.onnx
+# policy-2026-10-14_21-41-47-33k.onnx
+# 
 
 # rosservice call /dragon/rlagent/reload_policy \
-#   "policy_name: 'policy/policy-2026-10-04_21-43-00-26k.onnx'"
+#   "policy_name: 'policy/policy-2026-10-12_20-18-42-30k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-09_20-57-20-30k.onnx"
+  onnx_model_path: "policy/policy-2026-10-08_14-41-03-30k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -108,7 +113,7 @@ rlagent:
   gimbal_effort_ctrl: true
   thrust_hover: 8.5
   thrust_limit: 14.5
-  thrust_scale: 1.0  # actual thrust always smaller than the commanded value
+  thrust_scale: 0.95  # actual thrust always smaller than the commanded value
   # Clamp scaled joint/gimbal targets without changing action_ or last_action.
   action_clamp: false
   joint_limit: 1.57

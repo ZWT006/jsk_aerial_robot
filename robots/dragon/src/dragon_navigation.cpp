@@ -173,6 +173,9 @@ void DragonNavigator::landingProcess()
       if(!level_flag_)
         {
           const auto joint_state = robot_model_->kdlJointToMsg(robot_model_->getJointPositions());
+          // rebuild from scratch, otherwise the level pose accumulates over multiple flights in one bringup
+          level_shape_msg_.name.clear();
+          level_shape_msg_.position.clear();
           for(int i = 0; i < joint_state.position.size(); i++)
             {
               if(joint_state.name[i].find("joint") != std::string::npos)
