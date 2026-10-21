@@ -281,6 +281,10 @@ namespace aerial_robot_control
     int gimbal_target_delay_steps_ = 0;
     int thrust_target_delay_steps_ = 0;
     std::deque<std::vector<float>> target_joint_list_, target_gimbal_list_, target_thrust_list_;
+    // optional velocity observation delay emulation (policy-step granularity)
+    int lin_vel_delay_step_ = 0;
+    int ang_vel_delay_step_ = 0;
+    std::deque<tf::Vector3> lin_vel_obs_list_, ang_vel_obs_list_;
 
     // ----------- ONNX Runtime -----------
     std::unique_ptr<Ort::Env> ort_env_;

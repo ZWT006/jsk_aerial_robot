@@ -1,14 +1,16 @@
 <?xml version="1.0"?>
 <launch>
-  <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-demo.yaml" /> -->
+  <arg name="config" default="$(find dragon)/config/trajectory/dragon-demo.yaml" />
+  <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-demo-x2.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-move-demo.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/dragon-dance.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-diverse-trajs.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-Instability.yaml" /> -->
-  <arg name="config" default="$(find dragon)/config/trajectory/amp-Yaw-L.yaml" />
+  <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-Yaw-L.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-Pitch-L.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-Yaw-L-Rotate.yaml" /> -->
   <!-- <arg name="config" default="$(find dragon)/config/trajectory/amp-default.yaml" /> -->
+  <!-- <arg name="config" default="$(find dragon)/config/trajectory/multi-trajs.yaml" /> -->
 
   <arg name="robot_ns" default="dragon" />
   <arg name="mode" default="real" />  <!-- real=>RL | sim=>Model-based -->

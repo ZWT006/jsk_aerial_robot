@@ -305,6 +305,10 @@ void DragonTrackerRLAgent::initialize(ros::NodeHandle nh, ros::NodeHandle nhp,
   getParam<int>(rl_nh, "joint_target_delay_steps", joint_target_delay_steps_, 0);
   getParam<int>(rl_nh, "gimbal_target_delay_steps", gimbal_target_delay_steps_, 0);
   getParam<int>(rl_nh, "thrust_target_delay_steps", thrust_target_delay_steps_, 0);
+  getParam<int>(rl_nh, "lin_vel_delay_step", lin_vel_delay_step_, 0);
+  lin_vel_delay_step_ = std::max(0, lin_vel_delay_step_);
+  getParam<int>(rl_nh, "ang_vel_delay_step", ang_vel_delay_step_, 0);
+  ang_vel_delay_step_ = std::max(0, ang_vel_delay_step_);
 
   // actuator layouts: must match the training env's joint/gimbal/pair ordering
   joint_names_ = parseStringListParam(rl_nh, "joint_names",
@@ -817,6 +821,8 @@ void DragonTrackerRLAgent::reset()
   target_joint_list_.clear();
   target_gimbal_list_.clear();
   target_thrust_list_.clear();
+  lin_vel_obs_list_.clear();
+  ang_vel_obs_list_.clear();
 
   // re-seed the action so the first commands hold the measured configuration with zero
   // thrust (RSI-style consistency: action = (state - default) / scale)
@@ -968,10 +974,10 @@ void DragonTrackerRLAgent::buildObservation()
         {
           lin_vel_list_.push_back(ideal_lin_vel_world);
           ang_vel_list_.push_back(ideal_ang_vel_body);
+          while (static_cast<int>(lin_vel_list_.size()) > ideal_delay_ + 1) lin_vel_list_.pop_front();
+          while (static_cast<int>(ang_vel_list_.size()) > ideal_delay_ + 1) ang_vel_list_.pop_front();
           ideal_lin_vel_world = lin_vel_list_.front();
           ideal_ang_vel_body = ang_vel_list_.front();
-          if (static_cast<int>(lin_vel_list_.size()) > ideal_delay_ + 1) lin_vel_list_.pop_front();
-          if (static_cast<int>(ang_vel_list_.size()) > ideal_delay_ + 1) ang_vel_list_.pop_front();
         }
 
       if (ideal_pos_obs_) fc_pos_ = ideal_pos;
@@ -981,6 +987,21 @@ void DragonTrackerRLAgent::buildObservation()
     }
   fc_quat_.normalize();
   lin_vel_body_ = rotateByQuatInv(fc_quat_, lin_vel_world);
+
+  // ---- observation delay emulation (policy-step granularity, applied to the
+  // final body-frame velocity obs regardless of estimator/ideal source) ----
+  if (lin_vel_delay_step_ > 0)
+    {
+      lin_vel_obs_list_.push_back(lin_vel_body_);
+      while (static_cast<int>(lin_vel_obs_list_.size()) > lin_vel_delay_step_ + 1) lin_vel_obs_list_.pop_front();
+      lin_vel_body_ = lin_vel_obs_list_.front();
+    }
+  if (ang_vel_delay_step_ > 0)
+    {
+      ang_vel_obs_list_.push_back(ang_vel_body_);
+      while (static_cast<int>(ang_vel_obs_list_.size()) > ang_vel_delay_step_ + 1) ang_vel_obs_list_.pop_front();
+      ang_vel_body_ = ang_vel_obs_list_.front();
+    }
 
   // ---- assemble observation according to the YAML term list ----
   std::vector<float> obs;
@@ -1381,9 +1402,9 @@ void DragonTrackerRLAgent::applyJointAction(const float* action_slice)
   if (joint_target_delay_steps_ > 0)
     {
       target_joint_list_.push_back(target_joint_);
-      target_joint_ = target_joint_list_.front();
-      if (static_cast<int>(target_joint_list_.size()) > joint_target_delay_steps_ + 1)
+      while (static_cast<int>(target_joint_list_.size()) > joint_target_delay_steps_ + 1)
         target_joint_list_.pop_front();
+      target_joint_ = target_joint_list_.front();
     }
   // Leave effort empty in position mode: servo_bridge forwards any non-empty
   // effort as goal current, which caps CbP servos at zero torque.
@@ -1416,9 +1437,9 @@ void DragonTrackerRLAgent::applyGimbalAction(const float* action_slice)
   if (gimbal_target_delay_steps_ > 0)
     {
       target_gimbal_list_.push_back(target_gimbal_);
-      target_gimbal_ = target_gimbal_list_.front();
-      if (static_cast<int>(target_gimbal_list_.size()) > gimbal_target_delay_steps_ + 1)
+      while (static_cast<int>(target_gimbal_list_.size()) > gimbal_target_delay_steps_ + 1)
         target_gimbal_list_.pop_front();
+      target_gimbal_ = target_gimbal_list_.front();
     }
   // Leave effort empty in position mode: servo_bridge forwards any non-empty
   // effort as goal current, which caps CbP servos at zero torque.
@@ -1463,9 +1484,9 @@ void DragonTrackerRLAgent::applyThrustAction(const float* action_slice)
   if (thrust_target_delay_steps_ > 0)
     {
       target_thrust_list_.push_back(target_thrust_);
-      target_thrust_ = target_thrust_list_.front();
-      if (static_cast<int>(target_thrust_list_.size()) > thrust_target_delay_steps_ + 1)
+      while (static_cast<int>(target_thrust_list_.size()) > thrust_target_delay_steps_ + 1)
         target_thrust_list_.pop_front();
+      target_thrust_ = target_thrust_list_.front();
     }
   for (int i = 0; i < pair_size_; ++i)
     {
@@ -1784,6 +1805,8 @@ bool DragonTrackerRLAgent::reloadPolicyCallback(aerial_robot_model::ReloadPolicy
   catch_obs_ = false;
   last_dof_pos_initialized_ = false;
   history_initialized_ = false;
+  lin_vel_obs_list_.clear();
+  ang_vel_obs_list_.clear();
   seedActionFromState();
 
   res.success = true;

@@ -77,6 +77,10 @@ rlagent:
   ideal_lin_vel_obs: false
   ideal_ang_vel_obs: true
   ideal_delay: 4
+  # Velocity observation delay (policy steps), applied to the final body-frame
+  # lin_vel / ang_vel obs regardless of estimator or ideal source.
+  lin_vel_delay_step: 0
+  ang_vel_delay_step: 0
   # Put previous policy-step positions into dof_vel observation slots.
   replace_dof_vel_with_last_pos: true
   # Feed last_action scaled per group (joint*joint_act | gimbal*roll/pitch_act |

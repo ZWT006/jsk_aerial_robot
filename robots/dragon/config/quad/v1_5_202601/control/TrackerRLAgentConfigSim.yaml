@@ -44,7 +44,7 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 #   "policy_name: 'policy/policy-2026-10-12_20-18-42-30k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-08_14-41-03-30k.onnx"
+  onnx_model_path: "policy/policy-2026-10-04_21-43-00-40k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
@@ -91,11 +91,15 @@ rlagent:
   ideal_lin_vel_obs: false
   ideal_ang_vel_obs: true
   ideal_delay: 4
+  # Velocity observation delay (policy steps), applied to the final body-frame
+  # lin_vel / ang_vel obs regardless of estimator or ideal source.
+  lin_vel_delay_step: 0
+  ang_vel_delay_step: 0
   # Put previous policy-step positions into dof_vel observation slots.
   replace_dof_vel_with_last_pos: true
   # Feed last_action scaled per group (joint*joint_act | gimbal*roll/pitch_act |
   # thrust*thrust_act*thrust_obs), as _aars_scale_actions_for_observation in training.
-  scaled_last_action: true
+  scaled_last_action: false
 
   # ---- actuator layout (sim order; must match training) ----
   joint_names: [joint1_yaw, joint2_pitch, joint1_pitch, joint2_yaw, joint3_pitch, joint3_yaw]
@@ -121,7 +125,7 @@ rlagent:
   gimbal_pitch_limit: 3.14
   joint_target_delay_steps: 0
   gimbal_target_delay_steps: 0
-  thrust_target_delay_steps: 1
+  thrust_target_delay_steps: 2
 
   # ---- logging ----
   rlagent_verbose: true
@@ -133,9 +137,9 @@ rlagent:
   # carries it; together with thrust_hover, replace_dof_vel_with_last_pos.
   scales:
     dof_vel: 0.5
-    dof_delta: 10.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
+    dof_delta: 1.0   # (pos - last_pos) slots when replace_dof_vel_with_last_pos
     lin_vel: 1.0
-    ang_vel: 1.0
+    ang_vel: 0.2
     thrust_obs: 0.1   # obs_scales.thrust, applied to last_action thrust only
     joint_act: 0.15
     gimbal_roll_act: 0.125
