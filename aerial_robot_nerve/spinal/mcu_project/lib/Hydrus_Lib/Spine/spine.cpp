@@ -63,6 +63,7 @@ namespace Spine
     uint32_t direct_servo_last_pub_time_ = 0;
     uint32_t servo_torque_last_pub_time_ = 0;
     uint32_t board_states_last_pub_time_ = 0;
+    uint8_t board_state_sequence_ = 0;
     unsigned int can_idle_count_ = 0;
     bool servo_control_flag_ = true;
 
@@ -112,12 +113,33 @@ namespace Spine
       const uint32_t now = HAL_GetTick();
       if (now - board_states_last_pub_time_ < BOARD_STATES_PUB_INTERVAL)
         return;
+      if (board_states_msg_.boards_length == 0) return;
 
       board_states_msg_.stamp = nh_->now();
+
+      /* boards[0] is Spinal itself, followed by the Neurons. */
+      spinal::BoardState& spinal_state = board_states_msg_.boards[0];
+      spinal_state.slave_id = CAN::MASTER_ID;
+      spinal_state.sequence = board_state_sequence_++;
+      spinal_state.uptime_ms = now;
+      spinal_state.state_age_ms = 0;
+      spinal_state.can_rx_drop_count = CANDeviceManager::getRxDropCount();
+      spinal_state.can_tx_drop_count = CAN::getTxDropCount();
+#ifdef STM32H7
+      const CAN::ErrorStats can_error = CAN::takeErrorStats();
+      spinal_state.can_error_count = can_error.error_count;
+      spinal_state.can_bus_off_count = can_error.bus_off_count;
+      spinal_state.can_tec_max = can_error.tec_max;
+      spinal_state.can_rec_max = can_error.rec_max;
+      spinal_state.can_last_error_code = can_error.last_error_code;
+      spinal_state.can_last_data_error_code =
+        can_error.last_data_error_code;
+#endif
+
       for (uint8_t i = 0; i < slave_num_; ++i) {
         const Neuron& neuron = neuron_.at(i);
         const NeuronBoardState& state = neuron.getBoardState();
-        spinal::BoardState& output = board_states_msg_.boards[i];
+        spinal::BoardState& output = board_states_msg_.boards[i + 1];
         output.slave_id = neuron.getSlaveId();
         output.sequence = state.sequence;
         output.uptime_ms = state.uptime_ms;
@@ -129,6 +151,12 @@ namespace Spine
         output.rotor_esc_status_count = state.rotor_esc_status_count;
         output.can_rx_drop_count = state.can_rx_drop_count;
         output.can_tx_drop_count = state.can_tx_drop_count;
+        output.can_error_count = state.can_error_count;
+        output.can_bus_off_count = state.can_bus_off_count;
+        output.can_tec_max = state.can_tec_max;
+        output.can_rec_max = state.can_rec_max;
+        output.can_last_error_code = state.can_last_error_code;
+        output.can_last_data_error_code = state.can_last_data_error_code;
         for (uint8_t j = 0; j < output.servo_control_count_length; ++j) {
           output.servo_control_count[j] = state.servo_control_count[j];
         }
@@ -417,10 +445,10 @@ namespace Spine
     servo_state_msg_.servos = new spinal::ServoState[servo_num_];
     servo_torque_state_msg_.torque_enable_length = servo_num_;
     servo_torque_state_msg_.torque_enable = new uint8_t[servo_num_];
-    board_states_msg_.boards_length = slave_num_;
-    board_states_msg_.boards = new spinal::BoardState[slave_num_];
+    board_states_msg_.boards_length = slave_num_ + 1;
+    board_states_msg_.boards = new spinal::BoardState[slave_num_ + 1];
     for (uint8_t i = 0; i < slave_num_; ++i) {
-      spinal::BoardState& state = board_states_msg_.boards[i];
+      spinal::BoardState& state = board_states_msg_.boards[i + 1];
       state.servo_control_count_length =
         neuron_.at(i).can_servo_.servo_.size();
       state.servo_control_count = state.servo_control_count_length == 0

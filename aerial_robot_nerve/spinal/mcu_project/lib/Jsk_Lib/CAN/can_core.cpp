@@ -96,6 +96,10 @@ namespace CAN {
     //CAN bus registers
     FDCAN_HandleTypeDef* hfdcan_;
     volatile uint32_t tx_drop_count = 0;
+    ErrorStats error_stats = {};
+
+    constexpr uint8_t PROTOCOL_ERROR_NONE = 0;
+    constexpr uint8_t PROTOCOL_ERROR_NO_CHANGE = 7;
 
     void recordTxDrop()
     {
@@ -104,6 +108,49 @@ namespace CAN {
       tx_drop_count++;
       if (primask == 0U) __enable_irq();
     }
+  }
+
+  void updateErrorStatus()
+  {
+    if (hfdcan_ == nullptr) return;
+    FDCAN_GlobalTypeDef* instance = hfdcan_->Instance;
+
+    // Reading ECR clears CEL and reading PSR resets LEC/DLEC, so this must
+    // remain the only reader of both registers.
+    const uint32_t ecr = instance->ECR;
+    const uint32_t psr = instance->PSR;
+
+    error_stats.error_count += (ecr & FDCAN_ECR_CEL) >> FDCAN_ECR_CEL_Pos;
+    const uint8_t tec = (ecr & FDCAN_ECR_TEC) >> FDCAN_ECR_TEC_Pos;
+    const uint8_t rec = (ecr & FDCAN_ECR_REC) >> FDCAN_ECR_REC_Pos;
+    if (tec > error_stats.tec_max) error_stats.tec_max = tec;
+    if (rec > error_stats.rec_max) error_stats.rec_max = rec;
+
+    const uint8_t lec = (psr & FDCAN_PSR_LEC) >> FDCAN_PSR_LEC_Pos;
+    if (lec != PROTOCOL_ERROR_NONE && lec != PROTOCOL_ERROR_NO_CHANGE) {
+      error_stats.last_error_code = lec;
+    }
+    const uint8_t dlec = (psr & FDCAN_PSR_DLEC) >> FDCAN_PSR_DLEC_Pos;
+    if (dlec != PROTOCOL_ERROR_NONE && dlec != PROTOCOL_ERROR_NO_CHANGE) {
+      error_stats.last_data_error_code = dlec;
+    }
+
+    // On bus-off the controller sets CCCR.INIT and stays off the bus until
+    // software clears it; it then rejoins after 129 x 11 recessive bits.
+    if ((psr & FDCAN_PSR_BO) != 0U &&
+        (instance->CCCR & FDCAN_CCCR_INIT) != 0U) {
+      error_stats.bus_off_count++;
+      error_stats.tec_max = 0xFF;
+      CLEAR_BIT(instance->CCCR, FDCAN_CCCR_INIT);
+    }
+  }
+
+  ErrorStats takeErrorStats()
+  {
+    const ErrorStats stats = error_stats;
+    error_stats.tec_max = 0;
+    error_stats.rec_max = 0;
+    return stats;
   }
 
   void init(FDCAN_HandleTypeDef* hfdcan)

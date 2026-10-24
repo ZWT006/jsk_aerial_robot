@@ -65,6 +65,9 @@ namespace CANDeviceManager
 
   void tick(int cycle /* ms */)
   {
+#ifdef STM32H7
+    CAN::updateErrorStatus();
+#endif
     can_timeout_count++;
     static int internal_count = 0;
     if (can_timeout_count <= CAN_MAX_TIMEOUT_COUNT) {

@@ -26,12 +26,21 @@ struct NeuronBoardState
   uint16_t rotor_esc_status_count;
   uint32_t can_rx_drop_count;
   uint32_t can_tx_drop_count;
+  uint32_t can_error_count;
+  uint16_t can_bus_off_count;
+  uint8_t can_tec_max;
+  uint8_t can_rec_max;
+  uint8_t can_last_error_code;
+  uint8_t can_last_data_error_code;
   std::array<int16_t, CAN::CANFD_MAX_SERVO_NUM> servo_control_count;
 
   NeuronBoardState():received(false), sequence(0), servo_count(0),
     uptime_ms(0), received_tick(0), servo_target_count(0),
     thrust_target_count(0), servo_pvc_count(0), rotor_esc_status_count(0),
-    can_rx_drop_count(0), can_tx_drop_count(0), servo_control_count{} {}
+    can_rx_drop_count(0), can_tx_drop_count(0), can_error_count(0),
+    can_bus_off_count(0), can_tec_max(0), can_rec_max(0),
+    can_last_error_code(0), can_last_data_error_code(0),
+    servo_control_count{} {}
 };
 
 class Neuron {

@@ -59,10 +59,22 @@ namespace CAN {
 
 #if defined(STM32G473xx)
 namespace CAN {
+  struct ErrorStats
+  {
+    uint32_t error_count;          // accumulated ECR.CEL
+    uint16_t bus_off_count;
+    uint8_t tec_max;               // since the last takeErrorStats()
+    uint8_t rec_max;               // since the last takeErrorStats()
+    uint8_t last_error_code;       // latest PSR.LEC other than none/no change
+    uint8_t last_data_error_code;  // latest PSR.DLEC other than none/no change
+  };
+
   void init(FDCAN_HandleTypeDef* hfdcan, uint8_t slave_id);
   FDCAN_HandleTypeDef* getHcanInstance();
   bool sendMessage(uint8_t device_id, uint8_t message_id, uint8_t slave_id, uint32_t DLC, uint8_t* data, uint32_t timeout);
   uint32_t getTxDropCount();
+  void updateErrorStatus();
+  ErrorStats takeErrorStats();
 
   inline void CAN_START()
   {

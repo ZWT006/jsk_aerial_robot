@@ -59,6 +59,14 @@ void Initializer::sendData()
     writeUint16(data + 24 + i * 2, clampCount(count, 0x7FFF));
   }
 
+  const CAN::ErrorStats can_error = CAN::takeErrorStats();
+  writeUint32(data + 32, can_error.error_count);
+  writeUint16(data + 36, can_error.bus_off_count);
+  data[38] = can_error.tec_max;
+  data[39] = can_error.rec_max;
+  data[40] = can_error.last_error_code;
+  data[41] = can_error.last_data_error_code;
+
   sendMessage(CAN::MESSAGEID_SEND_BOARD_STATE, m_slave_id,
               CAN::CANFD_BOARD_STATE_DLC, data, 1);
 #endif

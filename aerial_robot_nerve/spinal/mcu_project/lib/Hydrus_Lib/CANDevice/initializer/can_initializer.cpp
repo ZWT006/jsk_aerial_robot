@@ -410,6 +410,12 @@ void CANInitializer::receiveDataCallback(uint8_t slave_id, uint8_t message_id, u
         state.rotor_esc_status_count = readUint16(data + 14);
         state.can_rx_drop_count = readUint32(data + 16);
         state.can_tx_drop_count = readUint32(data + 20);
+        state.can_error_count = readUint32(data + 32);
+        state.can_bus_off_count = readUint16(data + 36);
+        state.can_tec_max = data[38];
+        state.can_rec_max = data[39];
+        state.can_last_error_code = data[40];
+        state.can_last_data_error_code = data[41];
         for (uint8_t i = 0; i < state.servo_count; ++i) {
           state.servo_control_count[i] =
             static_cast<int16_t>(readUint16(data + 24 + i * 2));

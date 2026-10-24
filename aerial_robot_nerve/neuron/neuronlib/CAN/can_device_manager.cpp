@@ -64,6 +64,9 @@ namespace CANDeviceManager
 
   void tick(int cycle /* ms */)
   {
+#ifdef STM32G4
+    CAN::updateErrorStatus();
+#endif
     can_timeout_count++;
     if (can_timeout_count <= CAN_MAX_TIMEOUT_COUNT) {
       internal_count++;
