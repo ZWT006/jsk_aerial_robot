@@ -44,7 +44,7 @@ aerial_robot_control_name: aerial_robot_control/dragon_tracker_rlagent
 #   "policy_name: 'policy/policy-2026-10-12_20-18-42-30k.onnx'"
 
 rlagent:
-  onnx_model_path: "policy/policy-2026-10-04_21-43-00-40k.onnx"
+  onnx_model_path: "policy/policy-2026-10-23_20-25-44-30k.onnx"
   decimation: 5
 
   # ---- target-state FIFO ----
